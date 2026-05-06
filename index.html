@@ -115,7 +115,7 @@ function useDebounce(fn,delay){
   return cb;
 }
 
-/* ── Firebase hook with SDK realtime ── */
+/* ── Firebase hook with SDK realtime — keyed nodes ── */
 function useFirebaseData(){
   const [config,setConfig]=useState(null);
   const [plan,setPlan]=useState(null);
@@ -124,9 +124,9 @@ function useFirebaseData(){
   const [error,setError]=useState(null);
   const initRef=useRef(false);
 
-  function migrateRow(r){
+  function migrateRow(r,key){
     if(!r) return r;
-    const m={...r};
+    const m={...r,_key:key};
     if(!m.shootStatus&&m.status){m.shootStatus=m.status;}
     if(!m.shootStatus)m.shootStatus="pending";
     if(!m.editStatus)m.editStatus="pending";
@@ -135,12 +135,29 @@ function useFirebaseData(){
     return m;
   }
 
+  function snapshotToPlan(d){
+    if(!d)return[];
+    // Handle both old array format and new keyed format
+    if(Array.isArray(d)){
+      // Old array format — each item gets a temporary key
+      return d.filter(Boolean).map((r,i)=>migrateRow(r,"_arr_"+i));
+    }
+    // New keyed format: {"-Nabc123":{...}, "-Ndef456":{...}}
+    const entries=Object.entries(d);
+    // Check if keys are numeric (old array stored in Firebase becomes {0:{...},1:{...},...})
+    const isNumericKeys=entries.every(([k])=>/^\d+$/.test(k));
+    if(isNumericKeys){
+      return entries.sort((a,b)=>Number(a[0])-Number(b[0])).map(([k,v])=>migrateRow(v,"_num_"+k)).filter(Boolean);
+    }
+    // True keyed format
+    return entries.map(([k,v])=>migrateRow(v,k)).filter(Boolean).sort((a,b)=>(a.id||0)-(b.id||0));
+  }
+
   useEffect(()=>{
     if(initRef.current)return;
     initRef.current=true;
     let unsubs=[];
 
-    // Connection status
     const connRef=window.fbDb.ref(".info/connected");
     connRef.on("value",snap=>setConnected(!!snap.val()));
     unsubs.push(()=>connRef.off("value"));
@@ -150,18 +167,36 @@ function useFirebaseData(){
         const ec=await db.get("config");
         const ep=await db.get("plan");
         if(!ec)await db.set("config",{products:DEMO_PRODUCTS,concepts:DEMO_CONCEPTS,kocs:DEMO_KOCS});
-        if(!ep){const cfg=ec||{products:DEMO_PRODUCTS,concepts:DEMO_CONCEPTS,kocs:DEMO_KOCS};await db.set("plan",genPlan(cfg.products,cfg.concepts,cfg.kocs));}
 
-        // Realtime listeners — instant updates, no polling
+        // If no plan OR plan is old array format → migrate to keyed format
+        if(!ep){
+          const cfg=ec||{products:DEMO_PRODUCTS,concepts:DEMO_CONCEPTS,kocs:DEMO_KOCS};
+          const newPlan=genPlan(cfg.products,cfg.concepts,cfg.kocs);
+          // Write as keyed nodes
+          const keyed={};
+          newPlan.forEach(row=>{
+            const key=window.fbDb.ref("plan").push().key;
+            keyed[key]=row;
+          });
+          await db.set("plan",keyed);
+        } else if(Array.isArray(ep)||Object.keys(ep).every(k=>/^\d+$/.test(k))){
+          // Migrate old array/numeric format to keyed format
+          console.log("Migrating plan to keyed format...");
+          const oldPlan=snapshotToPlan(ep);
+          const keyed={};
+          oldPlan.forEach(row=>{
+            const key=window.fbDb.ref("plan").push().key;
+            const{_key,...rowData}=row;
+            keyed[key]=rowData;
+          });
+          await db.set("plan",keyed);
+          console.log("Migration complete:",Object.keys(keyed).length,"rows");
+        }
+
         const unsConfig=db.onValue("config",d=>{if(d)setConfig(d);});
         unsubs.push(unsConfig);
 
-        const unsPlan=db.onValue("plan",d=>{
-          if(d){
-            const a=Array.isArray(d)?d.filter(Boolean):Object.values(d).filter(Boolean);
-            setPlan(a.map(migrateRow));
-          }
-        });
+        const unsPlan=db.onValue("plan",d=>{setPlan(snapshotToPlan(d));});
         unsubs.push(unsPlan);
 
         setLoading(false);
@@ -645,8 +680,16 @@ function App(){
 
   const saveUndo=useCallback((label)=>{
     if(!plan.length)return;
+    // Save plan with _key for proper restore
     setUndoStack(prev=>{
-      const snap={plan:JSON.parse(JSON.stringify(plan)),config:config?JSON.parse(JSON.stringify(config)):null,label,time:Date.now()};
+      const planData={};
+      plan.forEach(row=>{
+        if(row._key&&!row._key.startsWith("_")){
+          const{_key,...d}=row;
+          planData[_key]=d;
+        }
+      });
+      const snap={plan:planData,config:config?JSON.parse(JSON.stringify(config)):null,label,time:Date.now()};
       const next=[snap,...prev];
       return next.slice(0,MAX_UNDO);
     });
@@ -731,41 +774,54 @@ function App(){
 
     console.log("Config update:",kept.length,"kept,",added.length,"added,",plan.length-kept.length,"removed");
     await db.set("config",{products:editProducts,concepts:editConcepts,kocs:editKocs});
-    await db.set("plan",merged);
+    // Write as keyed nodes
+    const keyed={};
+    merged.forEach(row=>{
+      if(row._key&&!row._key.startsWith("_")){
+        // Keep existing Firebase key
+        const{_key,...rowData}=row;
+        keyed[_key]=rowData;
+      }else{
+        // New row — generate new key
+        const key=window.fbDb.ref("plan").push().key;
+        const{_key,...rowData}=row;
+        keyed[key]=rowData;
+      }
+    });
+    await db.set("plan",keyed);
     setShowConfig(false);
   },[editProducts,editConcepts,editKocs,plan,saveUndo]);
 
-  const updateRowFb=useCallback(async(idx,field,value)=>{
-    await db.update("plan/"+idx,{[field]:value});
+  const updateRowFb=useCallback(async(key,field,value)=>{
+    await db.update("plan/"+key,{[field]:value});
   },[]);
 
   const debouncedUpdateFb=useDebounce(updateRowFb,800);
 
   const updateRow=useCallback((id,field,value)=>{
-    const idx=plan.findIndex(p=>p.id===id);
-    if(idx===-1)return;
+    const row=plan.find(p=>p.id===id);
+    if(!row||!row._key)return;
     // Update local state immediately for responsive inputs
-    const newPlan=[...plan];
-    newPlan[idx]={...newPlan[idx],[field]:value};
+    const newPlan=plan.map(p=>p.id===id?{...p,[field]:value}:p);
     setFbPlan(newPlan);
     setModalRow(prev=>(prev&&prev.id===id?{...prev,[field]:value}:prev));
-    debouncedUpdateFb(idx,field,value);
+    debouncedUpdateFb(row._key,field,value);
   },[plan,debouncedUpdateFb]);
 
   const toggleShootStatus=useCallback(async(id)=>{
-    const idx=plan.findIndex(p=>p.id===id);
-    if(idx===-1)return;
-    const ns=(plan[idx].shootStatus||"pending")==="pending"?"done":"pending";
+    const row=plan.find(p=>p.id===id);
+    if(!row||!row._key)return;
+    const ns=(row.shootStatus||"pending")==="pending"?"done":"pending";
     setModalRow(prev=>(prev&&prev.id===id?{...prev,shootStatus:ns}:prev));
-    await db.update("plan/"+idx,{shootStatus:ns});
+    await db.update("plan/"+row._key,{shootStatus:ns});
   },[plan]);
 
   const toggleEditStatus=useCallback(async(id)=>{
-    const idx=plan.findIndex(p=>p.id===id);
-    if(idx===-1)return;
-    const ns=(plan[idx].editStatus||"pending")==="pending"?"done":"pending";
+    const row=plan.find(p=>p.id===id);
+    if(!row||!row._key)return;
+    const ns=(row.editStatus||"pending")==="pending"?"done":"pending";
     setModalRow(prev=>(prev&&prev.id===id?{...prev,editStatus:ns}:prev));
-    await db.update("plan/"+idx,{editStatus:ns});
+    await db.update("plan/"+row._key,{editStatus:ns});
   },[plan]);
 
   const cloneRow=useCallback(async(id,count)=>{
@@ -773,43 +829,44 @@ function App(){
     if(!src)return;
     const n=count||1;
     saveUndo("Thêm "+n+" KB cho #"+id);
-    const newPlan=[...plan];
-    const idx=plan.findIndex(p=>p.id===id);
+    const maxId=plan.reduce((m,p)=>Math.max(m,p.id||0),0);
+    // Push new independent nodes — NEVER overwrites existing data
     for(let i=0;i<n;i++){
-      newPlan.splice(idx+1+i,0,{...src,id:0,script:"",scriptLink:"",shootStatus:"pending",shootDate:"",editStatus:"pending",editDate:"",status:"pending"});
+      const{_key,...srcData}=src;
+      const newRow={...srcData,id:maxId+1+i,script:"",scriptLink:"",shootStatus:"pending",shootDate:"",editStatus:"pending",editDate:"",status:"pending"};
+      await window.fbDb.ref("plan").push(newRow);
     }
-    newPlan.forEach((r,i)=>{r.id=i+1;});
-    await db.set("plan",newPlan);
   },[plan,saveUndo]);
 
   const deleteRow=useCallback(async(id)=>{
     if(!isAdmin){setShowPassModal(true);return;}
     if(!confirm("Xoá dòng #"+id+"?"))return;
+    const row=plan.find(p=>p.id===id);
+    if(!row||!row._key)return;
     saveUndo("Xoá dòng #"+id);
-    const newPlan=plan.filter(p=>p.id!==id);
-    newPlan.forEach((r,i)=>{r.id=i+1;});
     setModalRow(null);
-    await db.set("plan",newPlan);
+    // Remove just this one node — NEVER touches other rows
+    await db.remove("plan/"+row._key);
   },[plan,isAdmin,saveUndo]);
 
   const ocrApply=useCallback(async(matched)=>{
     if(!matched.length)return;
     saveUndo("OCR: tick "+matched.length+" dòng Đã dựng");
     const today=new Date().toISOString().split("T")[0];
-    // Use individual updates for each row — no conflict with other users
+    // Multi-path update using _key — each row independently
     const updates={};
     matched.forEach(m=>{
-      const idx=plan.findIndex(p=>p.id===m.rowId);
-      if(idx!==-1){
-        updates["plan/"+idx+"/editStatus"]="done";
-        updates["plan/"+idx+"/editDate"]=m.editDate||today;
-        if(m.shootDate&&!plan[idx].shootDate){
-          updates["plan/"+idx+"/shootDate"]=m.shootDate;
-          updates["plan/"+idx+"/shootStatus"]="done";
+      const row=plan.find(p=>p.id===m.rowId);
+      if(row&&row._key){
+        updates["plan/"+row._key+"/editStatus"]="done";
+        updates["plan/"+row._key+"/editDate"]=m.editDate||today;
+        if(m.shootDate&&!row.shootDate){
+          updates["plan/"+row._key+"/shootDate"]=m.shootDate;
+          updates["plan/"+row._key+"/shootStatus"]="done";
         }
       }
     });
-    await window.fbDb.ref().update(updates);
+    if(Object.keys(updates).length)await window.fbDb.ref().update(updates);
   },[plan,saveUndo]);
 
   const filteredPlan=useMemo(()=>{
