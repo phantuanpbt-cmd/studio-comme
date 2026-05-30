@@ -1,0 +1,1067 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Comme Studio — Production Rotation Planner</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎬</text></svg>" />
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet" />
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#0a0a0f;color:#e8e6e3;font-family:'DM Sans',sans-serif}
+input[type="date"]::-webkit-calendar-picker-indicator{filter:invert(0.7);cursor:pointer}
+::-webkit-scrollbar{width:6px;height:6px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:#2a2a3a;border-radius:3px}
+::-webkit-scrollbar-thumb:hover{background:#3a3a4a}
+@keyframes slideDown{from{opacity:0;transform:translateY(-8px)}to{opacity:1;transform:translateY(0)}}
+@keyframes modalIn{from{opacity:0;transform:scale(.95)}to{opacity:1;transform:scale(1)}}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+@media(max-width:640px){
+  body{font-size:13px}
+}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.3.1/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.3.1/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.26.5/babel.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+<script>
+firebase.initializeApp({
+  apiKey:"AIzaSyBxDpORZq82X2zWRniOpGH4IxTW53FIArc",
+  authDomain:"comme-studio.firebaseapp.com",
+  databaseURL:"https://comme-studio-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId:"comme-studio",
+  storageBucket:"comme-studio.firebasestorage.app",
+  messagingSenderId:"717710093856",
+  appId:"1:717710093856:web:8572585bfdbea74b115645"
+});
+window.fbDb=firebase.database();
+</script>
+<script type="text/babel">
+const { useState, useMemo, useCallback, useRef, useEffect } = React;
+
+/* ── Firebase SDK helpers ── */
+const db={
+  ref:(p)=>window.fbDb.ref(p),
+  async get(p){const s=await window.fbDb.ref(p).once("value");return s.val();},
+  set(p,d){return window.fbDb.ref(p).set(d);},
+  update(p,d){return window.fbDb.ref(p).update(d);},
+  onValue(p,cb){window.fbDb.ref(p).on("value",snap=>cb(snap.val()));return()=>window.fbDb.ref(p).off("value");},
+  push(p,d){return window.fbDb.ref(p).push(d);},
+  remove(p){return window.fbDb.ref(p).remove();}
+};
+
+/* ── Constants ── */
+const DEMO_PRODUCTS = [
+  {name:"HJM1",fullName:"Bàn chải điện HJM",link:"https://shopee.vn/ban-chai-dien"},
+  {name:"GA01",fullName:"Giấy ăn Teno",link:"https://shopee.vn/giay-an"},
+  {name:"NCK5",fullName:"Nồi chiên không dầu Kalux 5L",link:""},
+  {name:"KCN8",fullName:"Kem chống nắng Anessa",link:"https://tiktokshop.com/kem-chong-nang"},
+];
+const DEMO_CONCEPTS = ["One-shot","Trám cảnh","Vlog style","So sánh"];
+const DEMO_KOCS = ["Cường","Linh","Hà","Minh","Trang"];
+const ADMIN_PASS = "Comme@2026";
+
+const COL = {
+  bg:"#0a0a0f",surface:"#12121a",surfaceHover:"#1a1a26",surfaceRaised:"#1a1a28",
+  border:"#1e1e2e",borderActive:"#ff6b35",
+  accent:"#ff6b35",accentSoft:"rgba(255,107,53,0.12)",accentGlow:"rgba(255,107,53,0.25)",
+  text:"#e8e6e3",textMuted:"#8a8694",textDim:"#5a5666",
+  success:"#34d399",successSoft:"rgba(52,211,153,0.12)",
+  warning:"#fbbf24",warningSoft:"rgba(251,191,36,0.12)",
+  link:"#38bdf8",linkSoft:"rgba(56,189,248,0.12)",
+};
+const TC = [
+  {bg:"rgba(129,140,248,0.15)",text:"#818cf8",border:"rgba(129,140,248,0.3)"},
+  {bg:"rgba(244,114,182,0.15)",text:"#f472b6",border:"rgba(244,114,182,0.3)"},
+  {bg:"rgba(56,189,248,0.15)",text:"#38bdf8",border:"rgba(56,189,248,0.3)"},
+  {bg:"rgba(167,139,250,0.15)",text:"#a78bfa",border:"rgba(167,139,250,0.3)"},
+  {bg:"rgba(251,146,60,0.15)",text:"#fb923c",border:"rgba(251,146,60,0.3)"},
+  {bg:"rgba(52,211,153,0.15)",text:"#34d399",border:"rgba(52,211,153,0.3)"},
+  {bg:"rgba(251,191,36,0.15)",text:"#fbbf24",border:"rgba(251,191,36,0.3)"},
+];
+
+/* ── Rotation: Product × Concept × KOC (no script) ── */
+function genPlan(products, concepts, kocs) {
+  if(!products.length||!concepts.length||!kocs.length) return [];
+  const total = products.length * concepts.length;
+  const plan = []; let id = 1;
+  for(let k=0;k<kocs.length;k++){
+    for(let i=0;i<total;i++){
+      const s=(k+i)%total;
+      const pI=Math.floor(s/concepts.length)%products.length;
+      const cI=s%concepts.length;
+      plan.push({id:id++,koc:kocs[k],product:products[pI].name,productFullName:products[pI].fullName||products[pI].name,productLink:products[pI].link||"",concept:concepts[cI],script:"",scriptLink:"",shootStatus:"pending",shootDate:"",editStatus:"pending",editDate:"",status:"pending"});
+    }
+  }
+  return plan;
+}
+
+function fmtDate(d){if(!d)return"";const parts=d.split("-");if(parts.length!==3)return d;return parts[2]+"/"+parts[1]+"/"+parts[0];}
+
+/* ── Debounce helper ── */
+function useDebounce(fn,delay){
+  const timerRef=useRef(null);
+  const cb=useCallback((...args)=>{
+    if(timerRef.current)clearTimeout(timerRef.current);
+    timerRef.current=setTimeout(()=>fn(...args),delay);
+  },[fn,delay]);
+  return cb;
+}
+
+/* ── Firebase hook with SDK realtime — keyed nodes ── */
+function useFirebaseData(){
+  const [config,setConfig]=useState(null);
+  const [plan,setPlan]=useState(null);
+  const [loading,setLoading]=useState(true);
+  const [connected,setConnected]=useState(false);
+  const [error,setError]=useState(null);
+  const initRef=useRef(false);
+
+  function migrateRow(r,key){
+    if(!r) return r;
+    const m={...r,_key:key};
+    if(!m.shootStatus&&m.status){m.shootStatus=m.status;}
+    if(!m.shootStatus)m.shootStatus="pending";
+    if(!m.editStatus)m.editStatus="pending";
+    if(!m.editDate)m.editDate="";
+    if(!m.shootDate)m.shootDate="";
+    return m;
+  }
+
+  function snapshotToPlan(d){
+    if(!d)return[];
+    // Handle both old array format and new keyed format
+    if(Array.isArray(d)){
+      // Old array format — each item gets a temporary key
+      return d.filter(Boolean).map((r,i)=>migrateRow(r,"_arr_"+i));
+    }
+    // New keyed format: {"-Nabc123":{...}, "-Ndef456":{...}}
+    const entries=Object.entries(d);
+    // Check if keys are numeric (old array stored in Firebase becomes {0:{...},1:{...},...})
+    const isNumericKeys=entries.every(([k])=>/^\d+$/.test(k));
+    if(isNumericKeys){
+      return entries.sort((a,b)=>Number(a[0])-Number(b[0])).map(([k,v])=>migrateRow(v,"_num_"+k)).filter(Boolean);
+    }
+    // True keyed format
+    return entries.map(([k,v])=>migrateRow(v,k)).filter(Boolean).sort((a,b)=>(a.id||0)-(b.id||0));
+  }
+
+  useEffect(()=>{
+    if(initRef.current)return;
+    initRef.current=true;
+    let unsubs=[];
+
+    const connRef=window.fbDb.ref(".info/connected");
+    connRef.on("value",snap=>setConnected(!!snap.val()));
+    unsubs.push(()=>connRef.off("value"));
+
+    async function init(){
+      try{
+        const ec=await db.get("config");
+        const ep=await db.get("plan");
+        if(!ec)await db.set("config",{products:DEMO_PRODUCTS,concepts:DEMO_CONCEPTS,kocs:DEMO_KOCS});
+
+        // If no plan OR plan is old array format → migrate to keyed format
+        if(!ep){
+          const cfg=ec||{products:DEMO_PRODUCTS,concepts:DEMO_CONCEPTS,kocs:DEMO_KOCS};
+          const newPlan=genPlan(cfg.products,cfg.concepts,cfg.kocs);
+          // Write as keyed nodes
+          const keyed={};
+          newPlan.forEach(row=>{
+            const key=window.fbDb.ref("plan").push().key;
+            keyed[key]=row;
+          });
+          await db.set("plan",keyed);
+        } else if(Array.isArray(ep)||Object.keys(ep).every(k=>/^\d+$/.test(k))){
+          // Migrate old array/numeric format to keyed format
+          console.log("Migrating plan to keyed format...");
+          const oldPlan=snapshotToPlan(ep);
+          const keyed={};
+          oldPlan.forEach(row=>{
+            const key=window.fbDb.ref("plan").push().key;
+            const{_key,...rowData}=row;
+            keyed[key]=rowData;
+          });
+          await db.set("plan",keyed);
+          console.log("Migration complete:",Object.keys(keyed).length,"rows");
+        }
+
+        const unsConfig=db.onValue("config",d=>{if(d)setConfig(d);});
+        unsubs.push(unsConfig);
+
+        const unsPlan=db.onValue("plan",d=>{setPlan(snapshotToPlan(d));});
+        unsubs.push(unsPlan);
+
+        setLoading(false);
+      }catch(e){
+        console.error(e);
+        setError(e.message);
+        setLoading(false);
+      }
+    }
+    init();
+    return()=>unsubs.forEach(u=>u());
+  },[]);
+
+  return{config,plan,setPlan,loading,connected,error};
+}
+
+/* ── Styles ── */
+const inpS={padding:"6px 10px",borderRadius:"8px",border:`1px solid ${COL.border}`,background:COL.surface,color:COL.text,fontSize:"12px",fontFamily:"'DM Sans',sans-serif",outline:"none",width:"100%",boxSizing:"border-box"};
+const selS={padding:"6px 12px",borderRadius:"8px",border:`1px solid ${COL.border}`,background:COL.surface,color:COL.text,fontSize:"12px",fontFamily:"'DM Sans',sans-serif",cursor:"pointer",outline:"none"};
+const btnS=(a)=>({padding:"6px 14px",borderRadius:"8px",border:`1px solid ${a?COL.borderActive:COL.border}`,background:a?COL.accentSoft:"transparent",color:a?COL.accent:COL.textMuted,fontSize:"12px",fontWeight:600,cursor:"pointer",transition:"all 0.2s",fontFamily:"'DM Sans',sans-serif"});
+
+/* ── Components ── */
+function Tag({label,colorIndex=0}){const c=TC[colorIndex%TC.length];return <span style={{display:"inline-block",padding:"3px 10px",borderRadius:"6px",fontSize:"12px",fontWeight:600,letterSpacing:"0.02em",background:c.bg,color:c.text,border:`1px solid ${c.border}`,whiteSpace:"nowrap"}}>{label}</span>;}
+
+function StatCard({label,value,sub,icon}){return(
+  <div style={{background:COL.surface,border:`1px solid ${COL.border}`,borderRadius:"14px",padding:"20px",flex:"1 1 0",minWidth:"140px"}}>
+    <div style={{fontSize:"11px",textTransform:"uppercase",letterSpacing:"0.08em",color:COL.textMuted,marginBottom:"8px",fontWeight:600}}>{icon} {label}</div>
+    <div style={{fontSize:"28px",fontWeight:700,color:COL.text,fontFamily:"'Space Mono',monospace",lineHeight:1}}>{value}</div>
+    {sub&&<div style={{fontSize:"12px",color:COL.textDim,marginTop:"6px"}}>{sub}</div>}
+  </div>
+);}
+
+function ConnectionStatus({connected}){return(
+  <div style={{display:"flex",alignItems:"center",gap:"6px",padding:"4px 12px",borderRadius:"20px",fontSize:"11px",fontWeight:600,background:connected?"rgba(52,211,153,0.08)":"rgba(251,191,36,0.08)",color:connected?COL.success:COL.warning,border:`1px solid ${connected?"rgba(52,211,153,0.2)":"rgba(251,191,36,0.2)"}`}}>
+    <span style={{width:"6px",height:"6px",borderRadius:"50%",background:connected?COL.success:COL.warning,animation:connected?"none":"pulse 1.5s infinite"}}/>
+    {connected?"Đã kết nối · Realtime":"Đang kết nối..."}
+  </div>
+);}
+
+function ProductConfig({products,setProducts}){
+  const[input,setInput]=useState("");
+  const[showBulk,setShowBulk]=useState(false);
+  const[bulkText,setBulkText]=useState("");
+
+  const add=()=>{const parts=input.split(",").map(s=>s.trim()).filter(Boolean);if(!parts.length)return;const newItems=[];parts.forEach(v=>{if(v&&!products.find(p=>p.name===v)&&!newItems.find(p=>p.name===v)){newItems.push({name:v,fullName:"",link:""});}});if(newItems.length)setProducts([...products,...newItems]);setInput("");};
+  const remove=(i)=>setProducts(products.filter((_,idx)=>idx!==i));
+  const setField=(i,field,val)=>{const c=[...products];c[i]={...c[i],[field]:val};setProducts(c);};
+
+  const bulkImport=()=>{
+    const lines=bulkText.split("\n").map(l=>l.trim()).filter(Boolean);
+    const newItems=[];
+    lines.forEach(line=>{
+      // Support: tab-separated (from Excel/Sheets), or comma, or just name
+      let parts;
+      if(line.includes("\t")) parts=line.split("\t");
+      else if(line.includes(",")) parts=line.split(",");
+      else parts=[line];
+      const code=(parts[0]||"").trim();
+      const name=(parts[1]||"").trim();
+      const link=(parts[2]||"").trim();
+      if(code&&!products.find(p=>p.name===code)&&!newItems.find(p=>p.name===code)){
+        newItems.push({name:code,fullName:name,link:link});
+      }
+    });
+    if(newItems.length){setProducts([...products,...newItems]);setBulkText("");setShowBulk(false);}
+  };
+
+  return(<div>
+    <div style={{display:"flex",gap:"6px",marginBottom:"10px"}}>
+      <input value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>e.key==="Enter"&&add()} placeholder="Nhập mã SP: HJM1, GA01..." style={{...inpS,flex:1}}/>
+      <button onClick={add} style={{...btnS(true),padding:"6px 12px"}}>+</button>
+      <button onClick={()=>setShowBulk(!showBulk)} style={{...btnS(showBulk),padding:"6px 10px",fontSize:"11px",whiteSpace:"nowrap"}}>📋 Paste</button>
+    </div>
+
+    {showBulk&&(<div style={{marginBottom:"12px",padding:"12px",borderRadius:"10px",border:`1px solid ${COL.borderActive}`,background:"rgba(255,107,53,0.04)"}}>
+      <p style={{fontSize:"11px",color:COL.textMuted,marginBottom:"8px",lineHeight:1.5}}>Copy 2-3 cột từ Excel/Sheets rồi paste vào đây. Mỗi dòng 1 sản phẩm:<br/><span style={{color:COL.accent,fontFamily:"'Space Mono',monospace"}}>Mã SP [Tab] Tên SP [Tab] Link (tuỳ chọn)</span></p>
+      <textarea value={bulkText} onChange={e=>setBulkText(e.target.value)} placeholder={"TI681\tChăn gối văn phòng Snoopy xám\nhttps://...\nTI682\tChăn kèm gối VP 3in1 Totoro\nTI683\tChăn gối VP Khủng long xanh"} style={{...inpS,width:"100%",minHeight:"100px",resize:"vertical",fontFamily:"'Space Mono',monospace",fontSize:"11px",lineHeight:1.6}}/>
+      <div style={{display:"flex",gap:"8px",marginTop:"8px"}}>
+        <button onClick={bulkImport} style={{padding:"8px 18px",borderRadius:"8px",border:"none",background:COL.accent,color:"#fff",fontSize:"12px",fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>Nhập {bulkText.split("\n").filter(l=>l.trim()).length} sản phẩm</button>
+        <button onClick={()=>{setShowBulk(false);setBulkText("");}} style={{padding:"8px 14px",borderRadius:"8px",border:`1px solid ${COL.border}`,background:"transparent",color:COL.textMuted,fontSize:"12px",fontWeight:600,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>Huỷ</button>
+      </div>
+    </div>)}
+
+    <div style={{display:"flex",flexDirection:"column",gap:"8px",maxHeight:"240px",overflowY:"auto"}}>
+      {products.map((p,i)=>(<div key={i} style={{display:"flex",flexDirection:"column",gap:"4px",padding:"8px",borderRadius:"8px",border:`1px solid ${COL.border}`,background:"rgba(255,255,255,0.01)",position:"relative"}}>
+        <div style={{display:"flex",gap:"6px",alignItems:"center"}}>
+          <span style={{display:"inline-block",padding:"3px 10px",borderRadius:"6px",fontSize:"12px",fontWeight:600,letterSpacing:"0.02em",background:TC[i%TC.length].bg,color:TC[i%TC.length].text,border:`1px solid ${TC[i%TC.length].border}`,whiteSpace:"nowrap",maxWidth:"120px",overflow:"hidden",textOverflow:"ellipsis",flexShrink:0}}>{p.name}</span>
+          <input value={p.fullName||""} onChange={e=>setField(i,"fullName",e.target.value)} placeholder="Tên đầy đủ SP..." style={{...inpS,flex:1,fontSize:"11px",minWidth:0}}/>
+          <button onClick={()=>remove(i)} style={{background:"none",border:`1px solid rgba(239,68,68,0.3)`,borderRadius:"6px",color:"#ef4444",cursor:"pointer",fontSize:"12px",padding:"2px 8px",flexShrink:0,fontWeight:700,lineHeight:1.4}}>×</button>
+        </div>
+        <input value={p.link||""} onChange={e=>setField(i,"link",e.target.value)} placeholder="Link SP (Shopee, TikTok Shop...)" style={{...inpS,fontSize:"11px"}}/>
+      </div>))}
+    </div>
+  </div>);
+}
+
+function ChipInput({items,setItems,placeholder,colorIndex}){
+  const[input,setInput]=useState("");
+  const handleKey=(e)=>{if(e.key==="Enter"&&input.trim()){e.preventDefault();const parts=input.split(",").map(s=>s.trim()).filter(Boolean);const newItems=parts.filter(v=>!items.includes(v));if(newItems.length)setItems([...items,...newItems]);setInput("");}if(e.key===","&&input.trim()){e.preventDefault();const v=input.trim();if(!items.includes(v))setItems([...items,v]);setInput("");}if(e.key==="Backspace"&&!input&&items.length)setItems(items.slice(0,-1));};
+  return(
+    <div style={{display:"flex",flexWrap:"wrap",gap:"6px",padding:"10px 12px",background:COL.surface,border:`1px solid ${COL.border}`,borderRadius:"10px",minHeight:"44px",alignItems:"center",cursor:"text"}} onClick={e=>e.currentTarget.querySelector("input")?.focus()}>
+      {items.map((item,i)=>(<span key={i} style={{display:"inline-flex",alignItems:"center",gap:"5px",padding:"3px 8px 3px 10px",borderRadius:"6px",fontSize:"12px",fontWeight:600,background:TC[colorIndex%TC.length].bg,color:TC[colorIndex%TC.length].text,border:`1px solid ${TC[colorIndex%TC.length].border}`}}>{item}<button onClick={e=>{e.stopPropagation();setItems(items.filter((_,idx)=>idx!==i));}} style={{background:"none",border:"none",color:"inherit",cursor:"pointer",padding:"0 2px",fontSize:"14px",opacity:0.6,lineHeight:1}}>×</button></span>))}
+      <input value={input} onChange={e=>setInput(e.target.value)} onKeyDown={handleKey} placeholder={items.length===0?placeholder:""} style={{flex:1,minWidth:"80px",background:"none",border:"none",outline:"none",color:COL.text,fontSize:"13px",fontFamily:"'DM Sans',sans-serif"}}/>
+    </div>
+  );
+}
+
+function DetailModal({row,onClose,onUpdate,onClone,onDelete,isAdmin,productColorMap,conceptColorMap}){
+  if(!row) return null;
+  const lb=(l,c)=>(<div style={{fontSize:"11px",fontWeight:600,textTransform:"uppercase",letterSpacing:"0.06em",color:COL.textMuted,marginBottom:"6px"}}>{c}</div>);
+  return(
+    <div style={{position:"fixed",inset:0,zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(0,0,0,0.6)",backdropFilter:"blur(4px)"}} onClick={onClose}>
+      <div onClick={e=>e.stopPropagation()} style={{background:COL.surfaceRaised,border:`1px solid ${COL.border}`,borderRadius:"18px",padding:"28px",width:"460px",maxWidth:"90vw",maxHeight:"90vh",overflowY:"auto",animation:"modalIn .25s ease"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"20px"}}>
+          <h3 style={{margin:0,fontSize:"16px",fontWeight:700,color:COL.text}}>Chi tiết #{row.id}</h3>
+          {!isAdmin&&<span style={{fontSize:"10px",color:COL.textDim,padding:"3px 8px",borderRadius:"10px",border:`1px solid ${COL.border}`}}>🔒 Chỉ xem</span>}
+          <button onClick={onClose} style={{background:"none",border:"none",color:COL.textMuted,fontSize:"20px",cursor:"pointer",lineHeight:1}}>×</button>
+        </div>
+        <div style={{display:"flex",flexDirection:"column",gap:"14px"}}>
+          <div>{lb("","KOC")}<div style={{fontSize:"15px",fontWeight:600,color:COL.text}}>{row.koc}</div></div>
+          <div>{lb("","Sản phẩm")}<div style={{display:"flex",alignItems:"center",gap:"8px",flexWrap:"wrap"}}>{row.productLink?<a href={row.productLink} target="_blank" rel="noopener noreferrer" style={{textDecoration:"none"}}><Tag label={row.product} colorIndex={productColorMap[row.product]||0}/></a>:<Tag label={row.product} colorIndex={productColorMap[row.product]||0}/>}{row.productFullName&&<span style={{fontSize:"13px",color:COL.text}}>{row.productFullName}</span>}</div></div>
+          <div>{lb("","Concept")}<Tag label={row.concept} colorIndex={(conceptColorMap[row.concept]||1)+1}/></div>
+          <div>{lb("","Mã kịch bản")}{isAdmin?<input value={row.script||""} onChange={e=>onUpdate(row.id,"script",e.target.value)} placeholder="VD: KB01-A..." style={{...inpS,fontSize:"14px",padding:"10px 14px"}}/>:<div style={{fontSize:"14px",color:row.script?COL.text:COL.textDim,fontFamily:"'Space Mono',monospace"}}>{row.script||"—"}</div>}</div>
+          <div>{lb("","Link file kịch bản")}{isAdmin?<div style={{display:"flex",gap:"6px",alignItems:"center"}}><input value={row.scriptLink||""} onChange={e=>onUpdate(row.id,"scriptLink",e.target.value)} placeholder="Link Google Drive..." style={{...inpS,flex:1}}/>{row.scriptLink&&<a href={row.scriptLink} target="_blank" rel="noopener noreferrer" style={{display:"inline-flex",alignItems:"center",gap:"4px",padding:"6px 10px",borderRadius:"6px",fontSize:"11px",fontWeight:600,background:COL.warningSoft,color:COL.warning,border:"1px solid rgba(251,191,36,0.3)",textDecoration:"none",whiteSpace:"nowrap"}}>📎 Mở</a>}</div>:row.scriptLink?<a href={row.scriptLink} target="_blank" rel="noopener noreferrer" style={{fontSize:"12px",color:COL.link,textDecoration:"none"}}>📎 {row.scriptLink}</a>:<span style={{fontSize:"12px",color:COL.textDim}}>—</span>}</div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"12px"}}>
+            <div>{lb("","Trạng thái quay")}{isAdmin?<div style={{display:"flex",gap:"6px"}}>{["pending","done"].map(s=>(<button key={s} onClick={()=>onUpdate(row.id,"shootStatus",s)} style={{padding:"7px 14px",borderRadius:"10px",border:`1px solid ${(row.shootStatus||"pending")===s?(s==="done"?"rgba(52,211,153,0.4)":COL.borderActive):COL.border}`,background:(row.shootStatus||"pending")===s?(s==="done"?COL.successSoft:COL.accentSoft):"transparent",color:(row.shootStatus||"pending")===s?(s==="done"?COL.success:COL.accent):COL.textMuted,fontSize:"11px",fontWeight:600,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>{s==="done"?"Đã quay":"Chưa quay"}</button>))}</div>:<span style={{fontSize:"12px",color:(row.shootStatus||"pending")==="done"?COL.success:COL.textDim}}>{(row.shootStatus||"pending")==="done"?"Đã quay":"Chưa quay"}</span>}</div>
+            <div>{lb("","Ngày quay")}{isAdmin?<div style={{display:"flex",alignItems:"center",gap:"8px"}}><input type="date" value={row.shootDate||""} onChange={e=>onUpdate(row.id,"shootDate",e.target.value)} style={{...inpS,width:"140px",colorScheme:"dark"}}/>{row.shootDate&&<span style={{fontSize:"12px",fontFamily:"'Space Mono',monospace",color:COL.text}}>{fmtDate(row.shootDate)}</span>}</div>:<span style={{fontSize:"12px",fontFamily:"'Space Mono',monospace",color:row.shootDate?COL.text:COL.textDim}}>{fmtDate(row.shootDate)||"—"}</span>}</div>
+            <div>{lb("","Trạng thái dựng")}{isAdmin?<div style={{display:"flex",gap:"6px"}}>{["pending","done"].map(s=>(<button key={s} onClick={()=>onUpdate(row.id,"editStatus",s)} style={{padding:"7px 14px",borderRadius:"10px",border:`1px solid ${(row.editStatus||"pending")===s?(s==="done"?"rgba(56,189,248,0.3)":COL.borderActive):COL.border}`,background:(row.editStatus||"pending")===s?(s==="done"?"rgba(56,189,248,0.1)":COL.accentSoft):"transparent",color:(row.editStatus||"pending")===s?(s==="done"?COL.link:COL.accent):COL.textMuted,fontSize:"11px",fontWeight:600,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>{s==="done"?"Đã dựng":"Chưa dựng"}</button>))}</div>:<span style={{fontSize:"12px",color:(row.editStatus||"pending")==="done"?COL.link:COL.textDim}}>{(row.editStatus||"pending")==="done"?"Đã dựng":"Chưa dựng"}</span>}</div>
+            <div>{lb("","Ngày dựng")}{isAdmin?<div style={{display:"flex",alignItems:"center",gap:"8px"}}><input type="date" value={row.editDate||""} onChange={e=>onUpdate(row.id,"editDate",e.target.value)} style={{...inpS,width:"140px",colorScheme:"dark"}}/>{row.editDate&&<span style={{fontSize:"12px",fontFamily:"'Space Mono',monospace",color:COL.text}}>{fmtDate(row.editDate)}</span>}</div>:<span style={{fontSize:"12px",fontFamily:"'Space Mono',monospace",color:row.editDate?COL.text:COL.textDim}}>{fmtDate(row.editDate)||"—"}</span>}</div>
+          </div>
+          {isAdmin&&<button onClick={()=>{const n=prompt("Thêm bao nhiêu kịch bản?","1");if(n&&parseInt(n)>0){onClone(row.id,parseInt(n));onClose();}}} style={{padding:"10px",borderRadius:"10px",border:`1px dashed ${COL.accent}`,background:"transparent",color:COL.accent,fontSize:"12px",fontWeight:600,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",marginTop:"4px"}}>+ Thêm kịch bản mới cho tổ hợp này</button>}
+          {isAdmin&&<button onClick={()=>onDelete(row.id)} style={{padding:"10px",borderRadius:"10px",border:"1px dashed rgba(239,68,68,0.4)",background:"transparent",color:"#ef4444",fontSize:"12px",fontWeight:600,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>🗑 Xoá dòng này</button>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function TrackingMatrix({plan,products,concepts,kocs}){
+  const[dim,setDim]=useState("product");
+  const[selKoc,setSelKoc]=useState("all");
+  const[search,setSearch]=useState("");
+  const fp=selKoc==="all"?plan:plan.filter(p=>p.koc===selKoc);
+  const allItems=dim==="product"?products.map(p=>p.name):concepts;
+  const fullNameMap=useMemo(()=>{const m={};products.forEach(p=>(m[p.name]=p.fullName||""));return m;},[products]);
+  const linkMap=useMemo(()=>{const m={};products.forEach(p=>(m[p.name]=p.link||""));return m;},[products]);
+  const q=search.toLowerCase().trim();
+  const items=q?allItems.filter(item=>{const hay=[item,fullNameMap[item]||""].join(" ").toLowerCase();return hay.includes(q);}):allItems;
+  const field=dim==="product"?"product":"concept";
+  const matrix=useMemo(()=>{
+    const r={};kocs.forEach(koc=>{r[koc]={};items.forEach(item=>{const count=fp.filter(p=>p.koc===koc&&p[field]===item&&(p.shootStatus||"pending")==="done").length;const total=fp.filter(p=>p.koc===koc&&p[field]===item).length;r[koc][item]={count,total};});});return r;
+  },[fp,dim,kocs,items]);
+  const dKocs=selKoc==="all"?kocs:[selKoc];
+  return(
+    <div>
+      {/* Search */}
+      <div style={{marginBottom:"12px",position:"relative"}}>
+        <span style={{position:"absolute",left:"12px",top:"50%",transform:"translateY(-50%)",fontSize:"14px",color:COL.textDim,pointerEvents:"none"}}>🔍</span>
+        <input value={search} onChange={e=>setSearch(e.target.value)} placeholder={dim==="product"?"Tìm theo mã SP, tên SP...":"Tìm theo concept..."} style={{...inpS,paddingLeft:"36px",padding:"10px 12px 10px 36px",fontSize:"13px",borderRadius:"10px",background:COL.surface,border:`1px solid ${search?COL.borderActive:COL.border}`,transition:"border-color 0.2s"}}/>
+        {search&&<button onClick={()=>setSearch("")} style={{position:"absolute",right:"10px",top:"50%",transform:"translateY(-50%)",background:"none",border:"none",color:COL.textMuted,fontSize:"16px",cursor:"pointer",lineHeight:1}}>×</button>}
+      </div>
+
+      <div style={{display:"flex",gap:"8px",marginBottom:"16px",flexWrap:"wrap",alignItems:"center"}}>
+        <span style={{fontSize:"12px",color:COL.textMuted,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.06em"}}>Theo dõi theo:</span>
+        {["product","concept"].map(d=><button key={d} onClick={()=>setDim(d)} style={btnS(dim===d)}>{d==="product"?"Sản phẩm":"Concept"}</button>)}
+        <span style={{margin:"0 6px",color:COL.textDim}}>|</span>
+        <select value={selKoc} onChange={e=>setSelKoc(e.target.value)} style={selS}><option value="all">Tất cả KOC</option>{kocs.map(k=><option key={k} value={k}>{k}</option>)}</select>
+      </div>
+      <div style={{overflowX:"auto",WebkitOverflowScrolling:"touch",borderRadius:"12px",border:`1px solid ${COL.border}`}}>
+        <table style={{width:"100%",borderCollapse:"collapse",fontSize:"13px",minWidth:"500px"}}>
+          <thead><tr style={{background:COL.surface}}>
+            <th style={{padding:"12px 16px",textAlign:"left",color:COL.textMuted,fontWeight:600,fontSize:"11px",textTransform:"uppercase",letterSpacing:"0.06em",borderBottom:`1px solid ${COL.border}`,position:"sticky",left:0,background:COL.surface,zIndex:2}}>KOC</th>
+            {items.map((item,i)=><th key={item} style={{padding:"10px 12px",textAlign:"center",borderBottom:`1px solid ${COL.border}`,borderLeft:`1px solid ${COL.border}`,verticalAlign:"bottom",minWidth:"80px"}}>
+              <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:"4px"}}>
+                {dim==="product"&&linkMap[item]?<a href={linkMap[item]} target="_blank" rel="noopener noreferrer" style={{textDecoration:"none"}}><Tag label={item} colorIndex={i}/></a>:<Tag label={item} colorIndex={i}/>}
+                {dim==="product"&&fullNameMap[item]&&<span style={{fontSize:"10px",color:COL.textMuted,lineHeight:1.3,maxWidth:"100px",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",display:"block"}} title={fullNameMap[item]}>{fullNameMap[item]}</span>}
+              </div>
+            </th>)}
+          </tr></thead>
+          <tbody>{dKocs.map((koc,kIdx)=>(
+            <tr key={koc} style={{background:kIdx%2===0?"transparent":"rgba(255,255,255,0.01)"}}>
+              <td style={{padding:"12px 16px",fontWeight:600,color:COL.text,borderBottom:`1px solid ${COL.border}`,whiteSpace:"nowrap",position:"sticky",left:0,background:kIdx%2===0?COL.bg:"#0c0c14",zIndex:1}}>{koc}</td>
+              {items.map(item=>{const{count,total}=matrix[koc]?.[item]||{count:0,total:0};const pct=total>0?count/total:0;return(
+                <td key={item} style={{padding:"12px 16px",textAlign:"center",borderBottom:`1px solid ${COL.border}`,borderLeft:`1px solid ${COL.border}`}}>
+                  <div style={{display:"flex",alignItems:"center",justifyContent:"center",gap:"8px"}}>
+                    <div style={{width:"40px",height:"4px",borderRadius:"2px",background:COL.border,overflow:"hidden"}}><div style={{width:`${pct*100}%`,height:"100%",borderRadius:"2px",background:pct===1?COL.success:COL.accent,transition:"width 0.4s ease"}}/></div>
+                    <span style={{fontSize:"12px",fontFamily:"'Space Mono',monospace",color:pct===1?COL.success:COL.textMuted,fontWeight:600}}>{count}/{total}</span>
+                  </div>
+                </td>);})}
+            </tr>
+          ))}</tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+/* ── OCR Scanner Modal ── */
+function OcrScanner({plan,onApply,onClose}){
+  const[img,setImg]=useState(null);
+  const[scanning,setScanning]=useState(false);
+  const[progress,setProgress]=useState(0);
+  const[parsed,setParsed]=useState(null);
+  const[results,setResults]=useState(null);
+  const fileRef=useRef(null);
+
+  const handleFile=(e)=>{
+    const f=e.target.files?.[0];if(!f)return;
+    const reader=new FileReader();
+    reader.onload=()=>setImg(reader.result);
+    reader.readAsDataURL(f);
+    setParsed(null);setResults(null);
+  };
+
+  const doScan=async()=>{
+    if(!img)return;
+    setScanning(true);setProgress(0);
+    try{
+      const worker=await Tesseract.createWorker("eng",1,{logger:m=>{if(m.status==="recognizing text")setProgress(Math.round(m.progress*100));}});
+      const{data:{text}}=await worker.recognize(img);
+      await worker.terminate();
+
+      // Parse filenames and dates from OCR text
+      const lines=text.split(/\n/).map(l=>l.trim()).filter(Boolean);
+      const files=[];
+
+      // Month name to number
+      const monthMap={jan:"01",feb:"02",mar:"03",apr:"04",may:"05",jun:"06",jul:"07",aug:"08",sep:"09",oct:"10",nov:"11",dec:"12"};
+
+      // Parse date like "25-Mar-26", "25 Mar 26", "25-Mar-2026" to "2026-03-25"
+      function parseDateStr(str){
+        if(!str)return"";
+        // Try "25-Mar-26" or "25 Mar 2026"
+        const m=str.match(/(\d{1,2})[- /.]+(\w{3,9})[- /.]+(\d{2,4})/i);
+        if(m){
+          const day=m[1].padStart(2,"0");
+          const mon=monthMap[m[2].toLowerCase().slice(0,3)];
+          if(!mon)return"";
+          let year=m[3];if(year.length===2)year="20"+year;
+          return year+"-"+mon+"-"+day;
+        }
+        return"";
+      }
+
+      // Normalize file date codes: 24326 → unclear, 240326 → 24/03/26, 2432026 → 24/3/2026, 24032026 → 24/03/2026
+      function normalizeDateCode(code){
+        if(!code)return"";
+        const s=code.replace(/\D/g,"");
+        // 8 digits: DDMMYYYY
+        if(s.length===8){return s.slice(4)+"-"+s.slice(2,4)+"-"+s.slice(0,2);}
+        // 7 digits: DMMYYYY or DDMYYYY — ambiguous, try DDMYYYY
+        if(s.length===7){return s.slice(3)+"-"+s.slice(1,3).padStart(2,"0")+"-"+s.slice(0,1).padStart(2,"0");}
+        // 6 digits: DDMMYY
+        if(s.length===6){return"20"+s.slice(4)+"-"+s.slice(2,4)+"-"+s.slice(0,2);}
+        // 5 digits: DMMYY
+        if(s.length===5){return"20"+s.slice(3)+"-"+s.slice(1,3)+"-"+"0"+s.slice(0,1);}
+        return"";
+      }
+
+      lines.forEach(line=>{
+        // Strip icon garbage, common OCR artifacts at start of line
+        let clean=line.replace(/[|[\]{}]/g,"").trim();
+        // Remove common OCR icon misreads at start: "4B ", "TB ", "aB ", etc (file icons)
+        clean=clean.replace(/^[^A-Z]*(?=[A-Z])/i,"");
+
+        // Try to find the .mp4 filename pattern anywhere in the line
+        // Flexible: allow OCR spaces/garbage between parts
+        const fileMatch=clean.match(/([A-Z][A-Z0-9]*)\s*[_\s]+\s*([A-Z]*\d+)\s*[_\s]+\s*(\d{4,8})\s*\.?\s*mp4?/i);
+        if(!fileMatch) return;
+
+        const product=fileMatch[1].toUpperCase();
+        const kbPart=fileMatch[2].toUpperCase();
+        const scriptKey=product+"_"+kbPart;
+        const dateCode=fileMatch[3];
+
+        // Date in text column (e.g. "26-Mar-26") = ngày dựng
+        const dateTextMatch=clean.match(/(\d{1,2})[- /.](Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*[- /.]+(\d{2,4})/i);
+        let editDate="";
+        if(dateTextMatch){
+          editDate=parseDateStr(dateTextMatch[0]);
+        }
+
+        // Date code in filename (e.g. 11326) = ngày quay
+        let shootDate="";
+        if(dateCode){
+          shootDate=normalizeDateCode(dateCode);
+        }
+
+        const scriptKeyShort=product+"_"+kbPart;
+        const scriptKeyFull=product+"_"+kbPart+"_"+dateCode;
+
+        if(!files.find(f=>f.scriptFull===scriptKeyFull)){
+          files.push({product,script:scriptKeyShort,scriptFull:scriptKeyFull,dateCode,editDate,shootDate,raw:clean.replace(/\s+/g," ").slice(0,60)});
+        }
+      });
+
+      // Also do a global regex scan to catch anything missed
+      const globalRegex=/([A-Z][A-Z0-9]*)[_\s]+([A-Z]*\d+)[_\s]+(\d{4,8})\s*\.?\s*mp4?/gi;
+      let gm;
+      while((gm=globalRegex.exec(text))!==null){
+        const prod=gm[1].toUpperCase();
+        const kb=gm[2].toUpperCase();
+        const dc=gm[3];
+        const skFull=prod+"_"+kb+"_"+dc;
+        if(!files.find(f=>f.scriptFull===skFull)){
+          files.push({product:prod,script:prod+"_"+kb,scriptFull:skFull,dateCode:dc,editDate:"",shootDate:normalizeDateCode(dc),raw:gm[0]});
+        }
+      }
+
+      // Match against plan - try multiple formats
+      const matched=[];
+      const unmatched=[];
+      files.forEach(f=>{
+        let row=null;
+        // 1. Full match: EP4_KB1_11326
+        row=plan.find(p=>p.script===f.scriptFull&&(p.editStatus||"pending")!=="done");
+        // 2. Short match: EP4_KB1
+        if(!row) row=plan.find(p=>p.script===f.script&&(p.editStatus||"pending")!=="done");
+        // 3. Script starts with short key
+        if(!row) row=plan.find(p=>p.product===f.product&&p.script&&p.script.startsWith(f.script+"_")&&(p.editStatus||"pending")!=="done");
+        // 4. Try with KB prefix: file "1" → "KB1"
+        if(!row){
+          const altShort=f.product+"_KB"+f.script.split("_").pop();
+          const altFull=altShort+"_"+f.dateCode;
+          row=plan.find(p=>(p.script===altFull||p.script===altShort)&&(p.editStatus||"pending")!=="done");
+        }
+        if(row){matched.push({...f,rowId:row.id,rowIdx:plan.findIndex(p=>p.id===row.id)});}
+        else{unmatched.push(f);}
+      });
+
+      setParsed({files,matched,unmatched});
+      setResults(null);
+    }catch(err){
+      console.error("OCR error:",err);
+      alert("Lỗi OCR: "+err.message);
+    }
+    setScanning(false);
+  };
+
+  const applyMatched=()=>{
+    if(!parsed||!parsed.matched.length)return;
+    onApply(parsed.matched);
+    setResults({applied:parsed.matched.length});
+  };
+
+  return(
+    <div style={{position:"fixed",inset:0,zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(0,0,0,0.6)",backdropFilter:"blur(4px)"}} onClick={onClose}>
+      <div onClick={e=>e.stopPropagation()} style={{background:COL.surfaceRaised,border:`1px solid ${COL.border}`,borderRadius:"18px",padding:"28px",width:"560px",maxWidth:"95vw",maxHeight:"90vh",overflowY:"auto",animation:"modalIn .25s ease"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"16px"}}>
+          <h3 style={{margin:0,fontSize:"16px",fontWeight:700,color:COL.text}}>📸 Nhận diện file đã dựng</h3>
+          <button onClick={onClose} style={{background:"none",border:"none",color:COL.textMuted,fontSize:"20px",cursor:"pointer",lineHeight:1}}>×</button>
+        </div>
+
+        <p style={{fontSize:"12px",color:COL.textMuted,marginBottom:"16px",lineHeight:1.6}}>
+          Upload ảnh chụp màn hình folder file đã dựng (VD: <span style={{fontFamily:"'Space Mono',monospace",color:COL.accent}}>AHA5_KB1_6326.mp4</span>).<br/>
+          Hệ thống sẽ tự nhận diện mã SP + mã KB và tick "Đã dựng" hàng loạt.
+        </p>
+
+        {/* Upload */}
+        <div style={{marginBottom:"16px"}}>
+          <input type="file" ref={fileRef} accept="image/*" onChange={handleFile} style={{display:"none"}}/>
+          <button onClick={()=>fileRef.current?.click()} style={{...btnS(!!img),padding:"10px 20px",fontSize:"13px",display:"flex",alignItems:"center",gap:"6px"}}>
+            📁 {img?"Đổi ảnh":"Chọn ảnh"}
+          </button>
+        </div>
+
+        {/* Preview */}
+        {img&&<div style={{marginBottom:"16px",borderRadius:"10px",overflow:"hidden",border:`1px solid ${COL.border}`}}>
+          <img src={img} style={{width:"100%",maxHeight:"300px",objectFit:"contain",background:"#000"}}/>
+        </div>}
+
+        {/* Scan button */}
+        {img&&!scanning&&!parsed&&<button onClick={doScan} style={{padding:"10px 24px",borderRadius:"10px",border:"none",background:COL.accent,color:"#fff",fontSize:"13px",fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif",marginBottom:"16px"}}>🔍 Quét ảnh</button>}
+
+        {/* Progress */}
+        {scanning&&<div style={{marginBottom:"16px"}}>
+          <div style={{fontSize:"12px",color:COL.textMuted,marginBottom:"6px"}}>Đang nhận diện... {progress}%</div>
+          <div style={{width:"100%",height:"6px",borderRadius:"3px",background:COL.border,overflow:"hidden"}}>
+            <div style={{width:progress+"%",height:"100%",borderRadius:"3px",background:COL.accent,transition:"width 0.3s"}}/>
+          </div>
+        </div>}
+
+        {/* Results */}
+        {parsed&&<div>
+          <div style={{fontSize:"13px",fontWeight:600,color:COL.text,marginBottom:"10px"}}>
+            Tìm thấy {parsed.files.length} file · {parsed.matched.length} match trong bảng · {parsed.unmatched.length} không tìm thấy
+          </div>
+
+          {parsed.matched.length>0&&<div style={{marginBottom:"12px"}}>
+            <div style={{fontSize:"11px",fontWeight:600,textTransform:"uppercase",color:COL.success,marginBottom:"6px"}}>✅ Sẽ tick "Đã dựng" ({parsed.matched.length})</div>
+            <div style={{maxHeight:"150px",overflowY:"auto",display:"flex",flexDirection:"column",gap:"3px"}}>
+              {parsed.matched.map((m,i)=><div key={i} style={{fontSize:"11px",fontFamily:"'Space Mono',monospace",color:COL.text,padding:"4px 8px",background:"rgba(52,211,153,0.06)",borderRadius:"4px",display:"flex",justifyContent:"space-between",gap:"8px"}}>
+                <span>#{m.rowId} · {m.scriptFull||m.script}</span>
+                <span style={{color:COL.textMuted}}>{m.shootDate?("Q:"+fmtDate(m.shootDate)):""}  {m.editDate?("D:"+fmtDate(m.editDate)):""}</span>
+              </div>)}
+            </div>
+          </div>}
+
+          {parsed.unmatched.length>0&&<div style={{marginBottom:"12px"}}>
+            <div style={{fontSize:"11px",fontWeight:600,textTransform:"uppercase",color:COL.warning,marginBottom:"6px"}}>⚠ Không match ({parsed.unmatched.length})</div>
+            <div style={{maxHeight:"100px",overflowY:"auto",display:"flex",flexDirection:"column",gap:"3px"}}>
+              {parsed.unmatched.map((m,i)=><div key={i} style={{fontSize:"11px",fontFamily:"'Space Mono',monospace",color:COL.textDim,padding:"4px 8px",background:"rgba(251,191,36,0.06)",borderRadius:"4px"}}>{m.raw}</div>)}
+            </div>
+          </div>}
+
+          {!results&&parsed.matched.length>0&&<button onClick={applyMatched} style={{padding:"10px 24px",borderRadius:"10px",border:"none",background:COL.success,color:"#fff",fontSize:"13px",fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>✅ Áp dụng — Tick {parsed.matched.length} dòng "Đã dựng"</button>}
+
+          {results&&<div style={{padding:"12px",borderRadius:"10px",background:COL.successSoft,border:"1px solid rgba(52,211,153,0.2)",fontSize:"13px",color:COL.success,fontWeight:600}}>
+            ✅ Đã tick {results.applied} dòng "Đã dựng" thành công!
+          </div>}
+
+          {parsed.files.length===0&&<div style={{padding:"12px",borderRadius:"10px",background:COL.warningSoft,border:"1px solid rgba(251,191,36,0.2)",fontSize:"13px",color:COL.warning}}>
+            Không nhận diện được file nào. Thử ảnh rõ hơn hoặc zoom to hơn.
+          </div>}
+        </div>}
+      </div>
+    </div>
+  );
+}
+
+function PasswordModal({onSuccess,onClose}){
+  const[pass,setPass]=useState("");
+  const[err,setErr]=useState(false);
+  const ref=useRef(null);
+  useEffect(()=>{ref.current?.focus();},[]);
+  const submit=()=>{if(pass===ADMIN_PASS){onSuccess();}else{setErr(true);setPass("");setTimeout(()=>setErr(false),1500);}};
+  return(
+    <div style={{position:"fixed",inset:0,zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",background:"rgba(0,0,0,0.6)",backdropFilter:"blur(4px)"}} onClick={onClose}>
+      <div onClick={e=>e.stopPropagation()} style={{background:COL.surfaceRaised,border:`1px solid ${err?"rgba(239,68,68,0.5)":COL.border}`,borderRadius:"18px",padding:"28px",width:"360px",maxWidth:"90vw",animation:"modalIn .25s ease",transition:"border-color 0.3s"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:"16px"}}>
+          <h3 style={{margin:0,fontSize:"15px",fontWeight:700,color:COL.text}}>🔒 Nhập mật khẩu Admin</h3>
+          <button onClick={onClose} style={{background:"none",border:"none",color:COL.textMuted,fontSize:"20px",cursor:"pointer",lineHeight:1}}>×</button>
+        </div>
+        <p style={{fontSize:"12px",color:COL.textMuted,marginBottom:"16px"}}>Chỉ Admin mới được phép thay đổi cấu hình và tạo lại bảng kế hoạch.</p>
+        <input ref={ref} type="password" value={pass} onChange={e=>{setPass(e.target.value);setErr(false);}} onKeyDown={e=>e.key==="Enter"&&submit()} placeholder="Nhập mật khẩu..." style={{...inpS,marginBottom:"12px",borderColor:err?"rgba(239,68,68,0.5)":COL.border,fontSize:"14px",padding:"10px 14px"}}/>
+        {err&&<p style={{fontSize:"11px",color:"#ef4444",marginBottom:"12px",fontWeight:600}}>Sai mật khẩu. Vui lòng thử lại.</p>}
+        <div style={{display:"flex",gap:"10px"}}>
+          <button onClick={submit} style={{flex:1,padding:"10px",borderRadius:"10px",border:"none",background:COL.accent,color:"#fff",fontSize:"13px",fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>Xác nhận</button>
+          <button onClick={onClose} style={{padding:"10px 16px",borderRadius:"10px",border:`1px solid ${COL.border}`,background:"transparent",color:COL.textMuted,fontSize:"13px",fontWeight:600,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>Huỷ</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function LoadingScreen(){return(<div style={{minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:"16px"}}><div style={{width:"8px",height:"8px",borderRadius:"50%",background:COL.accent,boxShadow:`0 0 20px ${COL.accentGlow}`,animation:"pulse 1s infinite"}}/><div style={{fontSize:"14px",color:COL.textMuted,fontWeight:500}}>Đang kết nối Firebase...</div></div>);}
+
+function ErrorScreen({error}){return(
+  <div style={{minHeight:"100vh",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:"16px",padding:"40px"}}>
+    <div style={{fontSize:"40px"}}>⚠️</div>
+    <div style={{fontSize:"16px",color:COL.text,fontWeight:600}}>Không thể kết nối Firebase</div>
+    <div style={{fontSize:"13px",color:COL.textMuted,textAlign:"center",maxWidth:"400px"}}>{error}</div>
+    <button onClick={()=>location.reload()} style={{...btnS(true),marginTop:"12px",padding:"10px 24px"}}>🔄 Thử lại</button>
+  </div>
+);}
+
+/* ── Main App ── */
+function App(){
+  const{config,plan:fbPlan,setPlan:setFbPlan,loading,connected,error}=useFirebaseData();
+  const[showConfig,setShowConfig]=useState(false);
+  const[showPassModal,setShowPassModal]=useState(false);
+  const[showOcr,setShowOcr]=useState(false);
+  const[isAdmin,setIsAdmin]=useState(false);
+  const[activeTab,setActiveTab]=useState("plan");
+  const[modalRow,setModalRow]=useState(null);
+  const[filterKoc,setFilterKoc]=useState("all");
+  const[filterProduct,setFilterProduct]=useState("all");
+  const[filterStatus,setFilterStatus]=useState("all");
+  const[searchQuery,setSearchQuery]=useState("");
+  const[editProducts,setEditProducts]=useState(null);
+  const[editConcepts,setEditConcepts]=useState(null);
+  const[editKocs,setEditKocs]=useState(null);
+  const[undoStack,setUndoStack]=useState(()=>{try{const s=sessionStorage.getItem("cs_undo");return s?JSON.parse(s):[];}catch(e){return[];}});
+  useEffect(()=>{try{const d=JSON.stringify(undoStack.slice(0,3));if(d.length<4000000)sessionStorage.setItem("cs_undo",d);else sessionStorage.removeItem("cs_undo");}catch(e){try{sessionStorage.removeItem("cs_undo");}catch(e2){}}},[undoStack]);
+  const MAX_UNDO=20;
+
+  const products=config?.products||DEMO_PRODUCTS;
+  const concepts=config?.concepts||DEMO_CONCEPTS;
+  const kocs=config?.kocs||DEMO_KOCS;
+  const plan=fbPlan||[];
+
+  const saveUndo=useCallback((label)=>{
+    if(!plan.length)return;
+    // Save plan with _key for proper restore
+    setUndoStack(prev=>{
+      const planData={};
+      plan.forEach(row=>{
+        if(row._key&&!row._key.startsWith("_")){
+          const{_key,...d}=row;
+          planData[_key]=d;
+        }
+      });
+      const snap={plan:planData,config:config?JSON.parse(JSON.stringify(config)):null,label,time:Date.now()};
+      const next=[snap,...prev];
+      return next.slice(0,MAX_UNDO);
+    });
+  },[plan,config]);
+
+  const undo=useCallback(async()=>{
+    if(!undoStack.length)return;
+    const snap=undoStack[0];
+    if(!confirm("Hoàn tác: \""+snap.label+"\"?"))return;
+    if(snap.config)await db.set("config",snap.config);
+    await db.set("plan",snap.plan);
+    setUndoStack(prev=>prev.slice(1));
+    setModalRow(null);
+  },[undoStack]);
+
+  const openConfig=()=>{
+    if(isAdmin){setEditProducts(products.map(p=>({...p})));setEditConcepts([...concepts]);setEditKocs([...kocs]);setShowConfig(true);}
+    else{setShowPassModal(true);}
+  };
+  const onPassSuccess=()=>{setIsAdmin(true);setShowPassModal(false);setEditProducts(products.map(p=>({...p})));setEditConcepts([...concepts]);setEditKocs([...kocs]);setShowConfig(true);};
+
+  const regenerate=useCallback(async()=>{
+    if(!editProducts||!editConcepts||!editKocs)return;
+    saveUndo("Cập nhật cấu hình");
+
+    // Count changes for user feedback
+    const newProds=editProducts.filter(p=>!products.find(op=>op.name===p.name));
+    const removedProds=products.filter(p=>!editProducts.find(np=>np.name===p.name));
+    const newCons=editConcepts.filter(c=>!concepts.includes(c));
+    const removedCons=concepts.filter(c=>!editConcepts.includes(c));
+    const newK=editKocs.filter(k=>!kocs.includes(k));
+    const removedK=kocs.filter(k=>!editKocs.includes(k));
+    const msgs=[];
+    if(newProds.length)msgs.push("+ "+newProds.length+" SP mới");
+    if(removedProds.length)msgs.push("- "+removedProds.length+" SP bị xoá");
+    if(newCons.length)msgs.push("+ "+newCons.length+" concept mới");
+    if(removedCons.length)msgs.push("- "+removedCons.length+" concept bị xoá");
+    if(newK.length)msgs.push("+ "+newK.length+" KOC mới");
+    if(removedK.length)msgs.push("- "+removedK.length+" KOC bị xoá");
+    if(removedProds.length||removedCons.length||removedK.length){
+      if(!confirm("Thay đổi:\n"+msgs.join("\n")+"\n\nCác dòng bị xoá sẽ mất data. Tiếp tục?"))return;
+    }
+
+    // Build set of all required combos from new config
+    const newCombos=[];
+    editKocs.forEach(koc=>{
+      editProducts.forEach(p=>{
+        editConcepts.forEach(c=>{
+          newCombos.push({koc,product:p.name,productFullName:p.fullName||p.name,productLink:p.link||"",concept:c});
+        });
+      });
+    });
+
+    // Keep ALL existing rows that still match new config (including cloned rows with same KOC+SP+concept)
+    const kept=[];
+    plan.forEach(row=>{
+      const matchProduct=editProducts.find(p=>p.name===row.product);
+      const matchConcept=editConcepts.includes(row.concept);
+      const matchKoc=editKocs.includes(row.koc);
+      if(matchProduct&&matchConcept&&matchKoc){
+        kept.push({...row,productFullName:matchProduct.fullName||matchProduct.name,productLink:matchProduct.link||""});
+      }
+    });
+
+    // Track which KOC+SP+concept combos already exist
+    const existingKeys=new Set();
+    kept.forEach(row=>existingKeys.add(row.koc+"|"+row.product+"|"+row.concept));
+
+    // Add new combos that don't exist yet (1 row per new combo)
+    const added=[];
+    newCombos.forEach(combo=>{
+      const key=combo.koc+"|"+combo.product+"|"+combo.concept;
+      if(!existingKeys.has(key)){
+        added.push({...combo,id:0,script:"",scriptLink:"",shootStatus:"pending",shootDate:"",editStatus:"pending",editDate:"",status:"pending"});
+        existingKeys.add(key); // Prevent duplicates
+      }
+    });
+
+    // Merge and re-assign IDs
+    const merged=[...kept,...added];
+    merged.forEach((r,i)=>{r.id=i+1;});
+
+    console.log("Config update:",kept.length,"kept,",added.length,"added,",plan.length-kept.length,"removed");
+    await db.set("config",{products:editProducts,concepts:editConcepts,kocs:editKocs});
+    // Write as keyed nodes
+    const keyed={};
+    merged.forEach(row=>{
+      if(row._key&&!row._key.startsWith("_")){
+        // Keep existing Firebase key
+        const{_key,...rowData}=row;
+        keyed[_key]=rowData;
+      }else{
+        // New row — generate new key
+        const key=window.fbDb.ref("plan").push().key;
+        const{_key,...rowData}=row;
+        keyed[key]=rowData;
+      }
+    });
+    await db.set("plan",keyed);
+    setShowConfig(false);
+  },[editProducts,editConcepts,editKocs,plan,saveUndo]);
+
+  const updateRowFb=useCallback(async(key,field,value)=>{
+    await db.update("plan/"+key,{[field]:value});
+  },[]);
+
+  const debouncedUpdateFb=useDebounce(updateRowFb,800);
+
+  const updateRow=useCallback((id,field,value)=>{
+    const row=plan.find(p=>p.id===id);
+    if(!row||!row._key)return;
+    // Update local state immediately for responsive inputs
+    const newPlan=plan.map(p=>p.id===id?{...p,[field]:value}:p);
+    setFbPlan(newPlan);
+    setModalRow(prev=>(prev&&prev.id===id?{...prev,[field]:value}:prev));
+    debouncedUpdateFb(row._key,field,value);
+  },[plan,debouncedUpdateFb]);
+
+  const toggleShootStatus=useCallback(async(id)=>{
+    const row=plan.find(p=>p.id===id);
+    if(!row||!row._key)return;
+    const ns=(row.shootStatus||"pending")==="pending"?"done":"pending";
+    setModalRow(prev=>(prev&&prev.id===id?{...prev,shootStatus:ns}:prev));
+    await db.update("plan/"+row._key,{shootStatus:ns});
+  },[plan]);
+
+  const toggleEditStatus=useCallback(async(id)=>{
+    const row=plan.find(p=>p.id===id);
+    if(!row||!row._key)return;
+    const ns=(row.editStatus||"pending")==="pending"?"done":"pending";
+    setModalRow(prev=>(prev&&prev.id===id?{...prev,editStatus:ns}:prev));
+    await db.update("plan/"+row._key,{editStatus:ns});
+  },[plan]);
+
+  const cloneRow=useCallback(async(id,count)=>{
+    const src=plan.find(p=>p.id===id);
+    if(!src)return;
+    const n=count||1;
+    saveUndo("Thêm "+n+" KB cho #"+id);
+    const maxId=plan.reduce((m,p)=>Math.max(m,p.id||0),0);
+    // Push new independent nodes — NEVER overwrites existing data
+    for(let i=0;i<n;i++){
+      const{_key,...srcData}=src;
+      const newRow={...srcData,id:maxId+1+i,script:"",scriptLink:"",shootStatus:"pending",shootDate:"",editStatus:"pending",editDate:"",status:"pending"};
+      await window.fbDb.ref("plan").push(newRow);
+    }
+  },[plan,saveUndo]);
+
+  const deleteRow=useCallback(async(id)=>{
+    if(!isAdmin){setShowPassModal(true);return;}
+    if(!confirm("Xoá dòng #"+id+"?"))return;
+    const row=plan.find(p=>p.id===id);
+    if(!row||!row._key)return;
+    saveUndo("Xoá dòng #"+id);
+    setModalRow(null);
+    // Remove just this one node — NEVER touches other rows
+    await db.remove("plan/"+row._key);
+  },[plan,isAdmin,saveUndo]);
+
+  const ocrApply=useCallback(async(matched)=>{
+    if(!matched.length)return;
+    saveUndo("OCR: tick "+matched.length+" dòng Đã dựng");
+    const today=new Date().toISOString().split("T")[0];
+    // Multi-path update using _key — each row independently
+    const updates={};
+    matched.forEach(m=>{
+      const row=plan.find(p=>p.id===m.rowId);
+      if(row&&row._key){
+        updates["plan/"+row._key+"/editStatus"]="done";
+        updates["plan/"+row._key+"/editDate"]=m.editDate||today;
+        if(m.shootDate&&!row.shootDate){
+          updates["plan/"+row._key+"/shootDate"]=m.shootDate;
+          updates["plan/"+row._key+"/shootStatus"]="done";
+        }
+      }
+    });
+    if(Object.keys(updates).length)await window.fbDb.ref().update(updates);
+  },[plan,saveUndo]);
+
+  const filteredPlan=useMemo(()=>{
+    const q=searchQuery.toLowerCase().trim();
+    return plan.filter(p=>{
+      if(filterKoc!=="all"&&p.koc!==filterKoc)return false;
+      if(filterProduct!=="all"&&p.product!==filterProduct)return false;
+      if(filterStatus==="shoot-pending"&&(p.shootStatus||"pending")!=="pending")return false;
+      if(filterStatus==="shoot-done"&&(p.shootStatus||"pending")!=="done")return false;
+      if(filterStatus==="edit-pending"&&(p.editStatus||"pending")!=="pending")return false;
+      if(filterStatus==="edit-done"&&(p.editStatus||"pending")!=="done")return false;
+      if(q){
+        // Check for date range: "15/03/2026 - 23/03/2026"
+        const rangeMatch=q.match(/(\d{1,2}\/\d{1,2}\/\d{4})\s*[-–]\s*(\d{1,2}\/\d{1,2}\/\d{4})/);
+        if(rangeMatch){
+          const parseD=(s)=>{const p=s.split("/");return p[2]+"-"+p[1].padStart(2,"0")+"-"+p[0].padStart(2,"0");};
+          const from=parseD(rangeMatch[1]);
+          const to=parseD(rangeMatch[2]);
+          if(!p.shootDate||p.shootDate<from||p.shootDate>to)return false;
+        } else {
+          const haystack=[p.product,p.productFullName||"",p.koc,p.concept,p.script||"",fmtDate(p.shootDate),p.shootDate||""].join(" ").toLowerCase();
+          if(!haystack.includes(q))return false;
+        }
+      }
+      return true;
+    });
+  },[plan,filterKoc,filterProduct,filterStatus,searchQuery]);
+
+  const stats=useMemo(()=>{const shot=plan.filter(p=>(p.shootStatus||"pending")==="done").length;const edited=plan.filter(p=>(p.editStatus||"pending")==="done").length;return{total:plan.length,shot,edited,shotPct:plan.length>0?Math.round((shot/plan.length)*100):0,editPct:plan.length>0?Math.round((edited/plan.length)*100):0};},[plan]);
+  const productColorMap=useMemo(()=>{const m={};products.forEach((p,i)=>(m[p.name]=i));return m;},[products]);
+  const conceptColorMap=useMemo(()=>{const m={};concepts.forEach((c,i)=>(m[c]=i));return m;},[concepts]);
+
+  if(loading) return <LoadingScreen/>;
+  if(error) return <ErrorScreen error={error}/>;
+
+  return(
+    <div style={{minHeight:"100vh",animation:"fadeIn 0.3s ease"}}>
+      <DetailModal row={modalRow} onClose={()=>setModalRow(null)} onUpdate={updateRow} onClone={cloneRow} onDelete={deleteRow} isAdmin={isAdmin} productColorMap={productColorMap} conceptColorMap={conceptColorMap}/>
+      {showPassModal&&<PasswordModal onSuccess={onPassSuccess} onClose={()=>setShowPassModal(false)}/>}
+      {showOcr&&<OcrScanner plan={plan} onApply={ocrApply} onClose={()=>setShowOcr(false)}/>}
+
+      {/* Header */}
+      <div style={{borderBottom:`1px solid ${COL.border}`,padding:"20px 28px",display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:"12px",background:"linear-gradient(180deg,rgba(255,107,53,0.03) 0%,transparent 100%)"}}>
+        <div>
+          <div style={{display:"flex",alignItems:"center",gap:"10px"}}>
+            <div style={{width:"8px",height:"8px",borderRadius:"50%",background:COL.accent,boxShadow:`0 0 12px ${COL.accentGlow}`}}/>
+            <h1 style={{fontSize:"18px",fontWeight:700,margin:0,letterSpacing:"-0.02em"}}>Comme Studio</h1>
+          </div>
+          <p style={{fontSize:"12px",color:COL.textMuted,margin:"4px 0 0 18px",letterSpacing:"0.02em"}}>Production Rotation Planner</p>
+        </div>
+        <div style={{display:"flex",gap:"8px",alignItems:"center"}}>
+          <ConnectionStatus connected={connected}/>
+          {undoStack.length>0&&<button onClick={undo} title={"Hoàn tác: "+undoStack[0].label} style={{...btnS(false),padding:"6px 12px",fontSize:"11px",display:"flex",alignItems:"center",gap:"4px",color:COL.warning,borderColor:"rgba(251,191,36,0.3)"}}>↩ Undo {undoStack.length>1?"("+undoStack.length+")":""}</button>}
+          {isAdmin&&<span style={{fontSize:"11px",color:COL.success,fontWeight:600,padding:"4px 10px",borderRadius:"20px",background:COL.successSoft,border:"1px solid rgba(52,211,153,0.2)"}}>🔓 Admin</span>}
+          {isAdmin&&<button onClick={()=>setShowOcr(true)} style={{...btnS(false),padding:"6px 12px",fontSize:"11px",display:"flex",alignItems:"center",gap:"4px"}}>📸 Scan file dựng</button>}
+          <button onClick={openConfig} style={btnS(showConfig)}>{isAdmin?"⚙ Cấu hình":"🔒 Cấu hình"}</button>
+        </div>
+      </div>
+
+      <div style={{padding:"24px 28px",maxWidth:"1200px",margin:"0 auto"}}>
+        {/* Config */}
+        {showConfig&&editProducts&&(
+          <div style={{background:COL.surface,border:`1px solid ${COL.border}`,borderRadius:"16px",padding:"24px",marginBottom:"24px",animation:"slideDown 0.3s ease"}}>
+            <h3 style={{fontSize:"14px",fontWeight:700,margin:"0 0 6px 0",color:COL.text}}>Cấu hình dữ liệu đầu vào</h3>
+            <p style={{fontSize:"12px",color:COL.textMuted,margin:"0 0 4px 0"}}>Rotation tự động xoay đều: Sản phẩm × Concept × KOC. Kịch bản được nhập tay cho từng dòng.</p>
+            <p style={{fontSize:"11px",color:COL.success,margin:"0 0 20px 0"}}>✅ Thêm SP/concept/KOC mới sẽ chỉ thêm dòng mới, giữ nguyên data cũ. Xoá SP/concept/KOC sẽ xoá dòng tương ứng.</p>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(280px,1fr))",gap:"20px"}}>
+              <div>
+                <label style={{fontSize:"11px",fontWeight:600,textTransform:"uppercase",letterSpacing:"0.06em",color:COL.textMuted,marginBottom:"8px",display:"flex",alignItems:"center",gap:"4px"}}>🔗 Sản phẩm (Mã + Tên + Link)</label>
+                <ProductConfig products={editProducts} setProducts={setEditProducts}/>
+              </div>
+              <div>
+                <label style={{fontSize:"11px",fontWeight:600,textTransform:"uppercase",letterSpacing:"0.06em",color:COL.textMuted,marginBottom:"8px",display:"block"}}>Concept</label>
+                <ChipInput items={editConcepts} setItems={setEditConcepts} placeholder="VD: One-shot" colorIndex={1}/>
+              </div>
+              <div>
+                <label style={{fontSize:"11px",fontWeight:600,textTransform:"uppercase",letterSpacing:"0.06em",color:COL.textMuted,marginBottom:"8px",display:"block"}}>KOC</label>
+                <ChipInput items={editKocs} setItems={setEditKocs} placeholder="VD: Cường, Linh..." colorIndex={3}/>
+              </div>
+            </div>
+            <div style={{marginTop:"20px",display:"flex",gap:"10px"}}>
+              <button onClick={regenerate} style={{padding:"10px 24px",borderRadius:"10px",border:"none",background:COL.accent,color:"#fff",fontSize:"13px",fontWeight:700,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>Cập nhật bảng kế hoạch</button>
+              <button onClick={()=>setShowConfig(false)} style={{padding:"10px 20px",borderRadius:"10px",border:`1px solid ${COL.border}`,background:"transparent",color:COL.textMuted,fontSize:"13px",fontWeight:600,cursor:"pointer",fontFamily:"'DM Sans',sans-serif"}}>Đóng</button>
+            </div>
+          </div>
+        )}
+
+        {/* Stats */}
+        <div style={{display:"flex",gap:"12px",marginBottom:"24px",flexWrap:"wrap"}}>
+          <StatCard label="Tổng video" value={stats.total} sub={`${products.length} SP × ${concepts.length} concept × ${kocs.length} KOC`} icon="📋"/>
+          <StatCard label="Đã quay" value={stats.shot} sub={`${stats.shotPct}%`} icon="🎬"/>
+          <StatCard label="Chưa quay" value={stats.total-stats.shot} icon="⏳"/>
+          <StatCard label="Đã dựng" value={stats.edited} sub={`${stats.editPct}%`} icon="✅"/>
+          <StatCard label="Chưa dựng" value={stats.shot-stats.edited} icon="🎞"/>
+        </div>
+
+        {/* Tabs */}
+        <div style={{display:"flex",gap:"4px",marginBottom:"20px",background:COL.surface,borderRadius:"10px",padding:"4px",width:"fit-content",border:`1px solid ${COL.border}`}}>
+          {[{key:"plan",label:"Bảng kế hoạch"},{key:"tracking",label:"Ma trận theo dõi"}].map(tab=>(
+            <button key={tab.key} onClick={()=>setActiveTab(tab.key)} style={{padding:"8px 18px",borderRadius:"8px",border:"none",background:activeTab===tab.key?COL.accentSoft:"transparent",color:activeTab===tab.key?COL.accent:COL.textMuted,fontSize:"12px",fontWeight:600,cursor:"pointer",transition:"all 0.2s",fontFamily:"'DM Sans',sans-serif"}}>{tab.label}</button>
+          ))}
+        </div>
+
+        {/* Plan Table */}
+        {activeTab==="plan"&&(
+          <div>
+            {/* Search */}
+            <div style={{marginBottom:"12px",position:"relative"}}>
+              <span style={{position:"absolute",left:"12px",top:"50%",transform:"translateY(-50%)",fontSize:"14px",color:COL.textDim,pointerEvents:"none"}}>🔍</span>
+              <input value={searchQuery} onChange={e=>setSearchQuery(e.target.value)} placeholder="Tìm: mã SP, KOC, concept, KB, ngày (12/03/2026) hoặc khoảng ngày (15/03/2026 - 23/03/2026)..." style={{...inpS,paddingLeft:"36px",paddingRight:searchQuery?"36px":"12px",padding:"10px 12px 10px 36px",fontSize:"13px",borderRadius:"10px",background:COL.surface,border:`1px solid ${searchQuery?COL.borderActive:COL.border}`,transition:"border-color 0.2s"}}/>
+              {searchQuery&&<button onClick={()=>setSearchQuery("")} style={{position:"absolute",right:"10px",top:"50%",transform:"translateY(-50%)",background:"none",border:"none",color:COL.textMuted,fontSize:"16px",cursor:"pointer",lineHeight:1}}>×</button>}
+            </div>
+
+            <div style={{display:"flex",gap:"10px",marginBottom:"16px",flexWrap:"wrap",alignItems:"center"}}>
+              <span style={{fontSize:"12px",color:COL.textMuted,fontWeight:600,textTransform:"uppercase",letterSpacing:"0.06em"}}>Lọc:</span>
+              <select value={filterKoc} onChange={e=>setFilterKoc(e.target.value)} style={selS}><option value="all">Tất cả KOC</option>{kocs.map(k=><option key={k} value={k}>{k}</option>)}</select>
+              <select value={filterProduct} onChange={e=>setFilterProduct(e.target.value)} style={selS}><option value="all">Tất cả SP</option>{products.map(p=><option key={p.name} value={p.name}>{p.name}{p.fullName?" — "+p.fullName:""}</option>)}</select>
+              <select value={filterStatus} onChange={e=>setFilterStatus(e.target.value)} style={selS}><option value="all">Tất cả trạng thái</option><option value="shoot-pending">Chưa quay</option><option value="shoot-done">Đã quay</option><option value="edit-pending">Chưa dựng</option><option value="edit-done">Đã dựng</option></select>
+              <span style={{fontSize:"12px",color:COL.textDim,marginLeft:"auto",fontFamily:"'Space Mono',monospace"}}>{filteredPlan.length} kết quả</span>
+            </div>
+            <div style={{borderRadius:"14px",border:`1px solid ${COL.border}`,overflow:"hidden"}}>
+              <div style={{overflowX:"auto",WebkitOverflowScrolling:"touch"}}>
+              <table style={{width:"100%",borderCollapse:"collapse",minWidth:"1000px"}}>
+                <thead><tr style={{background:COL.surface}}>
+                  {["#","KOC","Sản phẩm","Concept","Kịch bản","shootStatus","Ngày quay","editStatus","Ngày dựng",""].map((h,i)=>(
+                    <th key={h+i} style={{padding:"14px 12px",textAlign:i===0?"center":"left",fontSize:"11px",fontWeight:600,textTransform:"uppercase",letterSpacing:"0.06em",color:COL.textMuted,borderBottom:`1px solid ${COL.border}`,whiteSpace:"nowrap",width:i===9?"40px":undefined}}>{
+                      h==="shootStatus"?<div style={{display:"flex",flexDirection:"column",alignItems:"center",lineHeight:1.4}}><span>Trạng thái</span><span>Quay</span></div>
+                      :h==="editStatus"?<div style={{display:"flex",flexDirection:"column",alignItems:"center",lineHeight:1.4}}><span>Trạng thái</span><span>Dựng</span></div>
+                      :h
+                    }</th>
+                  ))}
+                </tr></thead>
+                <tbody>
+                  {filteredPlan.slice(0,100).map((row,idx)=>(
+                    <tr key={row.id} style={{background:idx%2===0?"transparent":"rgba(255,255,255,0.008)",transition:"background 0.15s",cursor:"pointer"}} onMouseEnter={e=>(e.currentTarget.style.background=COL.surfaceHover)} onMouseLeave={e=>(e.currentTarget.style.background=idx%2===0?"transparent":"rgba(255,255,255,0.008)")} onClick={()=>setModalRow({...row})}>
+                      <td style={{padding:"12px 16px",textAlign:"center",fontSize:"12px",fontFamily:"'Space Mono',monospace",color:COL.textDim,borderBottom:`1px solid ${COL.border}`}}>{row.id}</td>
+                      <td style={{padding:"12px 16px",fontWeight:600,color:COL.text,borderBottom:`1px solid ${COL.border}`,whiteSpace:"nowrap"}}>{row.koc}</td>
+                      <td style={{padding:"12px 16px",borderBottom:`1px solid ${COL.border}`}}>
+                        <div style={{display:"flex",alignItems:"center",gap:"6px"}}>
+                          {row.productLink?<a href={row.productLink} target="_blank" rel="noopener noreferrer" onClick={e=>e.stopPropagation()} style={{textDecoration:"none"}}><Tag label={row.product} colorIndex={productColorMap[row.product]||0}/></a>:<Tag label={row.product} colorIndex={productColorMap[row.product]||0}/>}
+                          {row.productFullName&&row.productFullName!==row.product&&<span style={{fontSize:"11px",color:COL.textMuted,maxWidth:"120px",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}} title={row.productFullName}>{row.productFullName}</span>}
+                        </div>
+                      </td>
+                      <td style={{padding:"12px 16px",borderBottom:`1px solid ${COL.border}`}}><Tag label={row.concept} colorIndex={(conceptColorMap[row.concept]||1)+1}/></td>
+                      <td style={{padding:"12px 16px",borderBottom:`1px solid ${COL.border}`,whiteSpace:"nowrap"}}>
+                        <div style={{display:"flex",alignItems:"center",gap:"6px"}}>
+                          {isAdmin?<input value={row.script||""} onClick={e=>e.stopPropagation()} onChange={e=>{e.stopPropagation();updateRow(row.id,"script",e.target.value);}} placeholder="Nhập mã KB..." style={{background:"none",border:`1px solid ${COL.border}`,borderRadius:"6px",padding:"4px 8px",color:row.script?COL.text:COL.textDim,fontSize:"11px",fontFamily:"'Space Mono',monospace",outline:"none",width:"100px"}}/>:<span style={{fontSize:"12px",fontFamily:"'Space Mono',monospace",color:row.script?COL.text:COL.textDim}}>{row.script||"—"}</span>}
+                          {row.scriptLink&&<span style={{color:COL.warning,fontSize:"11px"}} title={row.scriptLink}>📎</span>}
+                        </div>
+                      </td>
+                      <td style={{padding:"12px 10px",borderBottom:`1px solid ${COL.border}`}}>
+                        {isAdmin?<span onClick={e=>{e.stopPropagation();toggleShootStatus(row.id);}} style={{display:"inline-flex",alignItems:"center",gap:"5px",padding:"4px 10px",borderRadius:"20px",fontSize:"11px",fontWeight:600,background:(row.shootStatus||"pending")==="done"?COL.successSoft:"rgba(255,255,255,0.04)",color:(row.shootStatus||"pending")==="done"?COL.success:COL.textDim,border:`1px solid ${(row.shootStatus||"pending")==="done"?"rgba(52,211,153,0.2)":COL.border}`,transition:"all 0.2s",cursor:"pointer",whiteSpace:"nowrap"}}><span style={{width:"6px",height:"6px",borderRadius:"50%",background:(row.shootStatus||"pending")==="done"?COL.success:COL.textDim}}/>{(row.shootStatus||"pending")==="done"?"Đã quay":"Chưa quay"}</span>:<span style={{display:"inline-flex",alignItems:"center",gap:"5px",padding:"4px 10px",borderRadius:"20px",fontSize:"11px",fontWeight:600,background:(row.shootStatus||"pending")==="done"?COL.successSoft:"rgba(255,255,255,0.04)",color:(row.shootStatus||"pending")==="done"?COL.success:COL.textDim,border:`1px solid ${(row.shootStatus||"pending")==="done"?"rgba(52,211,153,0.2)":COL.border}`,whiteSpace:"nowrap"}}><span style={{width:"6px",height:"6px",borderRadius:"50%",background:(row.shootStatus||"pending")==="done"?COL.success:COL.textDim}}/>{(row.shootStatus||"pending")==="done"?"Đã quay":"Chưa quay"}</span>}
+                      </td>
+                      <td style={{padding:"12px 10px",borderBottom:`1px solid ${COL.border}`,whiteSpace:"nowrap"}}>
+                        {isAdmin?<div style={{display:"flex",alignItems:"center",gap:"6px"}}>
+                          {row.shootDate&&<span style={{fontSize:"12px",fontFamily:"'Space Mono',monospace",color:COL.text,fontWeight:500}}>{fmtDate(row.shootDate)}</span>}
+                          <input type="date" value={row.shootDate||""} onClick={e=>e.stopPropagation()} onChange={e=>{e.stopPropagation();updateRow(row.id,"shootDate",e.target.value);}} style={{background:"none",border:`1px solid ${COL.border}`,borderRadius:"6px",padding:"4px 8px",color:row.shootDate?"transparent":COL.textDim,fontSize:"11px",fontFamily:"'Space Mono',monospace",outline:"none",colorScheme:"dark",cursor:"pointer",width:row.shootDate?"28px":"100px",minWidth:row.shootDate?"28px":"100px"}}/>
+                        </div>:<span style={{fontSize:"12px",fontFamily:"'Space Mono',monospace",color:row.shootDate?COL.text:COL.textDim}}>{fmtDate(row.shootDate)||"—"}</span>}
+                      </td>
+                      <td style={{padding:"12px 10px",borderBottom:`1px solid ${COL.border}`}}>
+                        {isAdmin?<span onClick={e=>{e.stopPropagation();toggleEditStatus(row.id);}} style={{display:"inline-flex",alignItems:"center",gap:"5px",padding:"4px 10px",borderRadius:"20px",fontSize:"11px",fontWeight:600,background:(row.editStatus||"pending")==="done"?"rgba(56,189,248,0.1)":"rgba(255,255,255,0.04)",color:(row.editStatus||"pending")==="done"?COL.link:COL.textDim,border:`1px solid ${(row.editStatus||"pending")==="done"?"rgba(56,189,248,0.25)":COL.border}`,transition:"all 0.2s",cursor:"pointer",whiteSpace:"nowrap"}}><span style={{width:"6px",height:"6px",borderRadius:"50%",background:(row.editStatus||"pending")==="done"?COL.link:COL.textDim}}/>{(row.editStatus||"pending")==="done"?"Đã dựng":"Chưa dựng"}</span>:<span style={{display:"inline-flex",alignItems:"center",gap:"5px",padding:"4px 10px",borderRadius:"20px",fontSize:"11px",fontWeight:600,background:(row.editStatus||"pending")==="done"?"rgba(56,189,248,0.1)":"rgba(255,255,255,0.04)",color:(row.editStatus||"pending")==="done"?COL.link:COL.textDim,border:`1px solid ${(row.editStatus||"pending")==="done"?"rgba(56,189,248,0.25)":COL.border}`,whiteSpace:"nowrap"}}><span style={{width:"6px",height:"6px",borderRadius:"50%",background:(row.editStatus||"pending")==="done"?COL.link:COL.textDim}}/>{(row.editStatus||"pending")==="done"?"Đã dựng":"Chưa dựng"}</span>}
+                      </td>
+                      <td style={{padding:"12px 10px",borderBottom:`1px solid ${COL.border}`,whiteSpace:"nowrap"}}>
+                        {isAdmin?<div style={{display:"flex",alignItems:"center",gap:"6px"}}>
+                          {row.editDate&&<span style={{fontSize:"12px",fontFamily:"'Space Mono',monospace",color:COL.text,fontWeight:500}}>{fmtDate(row.editDate)}</span>}
+                          <input type="date" value={row.editDate||""} onClick={e=>e.stopPropagation()} onChange={e=>{e.stopPropagation();updateRow(row.id,"editDate",e.target.value);}} style={{background:"none",border:`1px solid ${COL.border}`,borderRadius:"6px",padding:"4px 8px",color:row.editDate?"transparent":COL.textDim,fontSize:"11px",fontFamily:"'Space Mono',monospace",outline:"none",colorScheme:"dark",cursor:"pointer",width:row.editDate?"28px":"100px",minWidth:row.editDate?"28px":"100px"}}/>
+                        </div>:<span style={{fontSize:"12px",fontFamily:"'Space Mono',monospace",color:row.editDate?COL.text:COL.textDim}}>{fmtDate(row.editDate)||"—"}</span>}
+                      </td>
+                      <td style={{padding:"6px",borderBottom:`1px solid ${COL.border}`,textAlign:"center"}}>
+                        {isAdmin&&<div style={{display:"flex",flexDirection:"column",gap:"3px",alignItems:"center"}}>
+                          <button onClick={e=>{e.stopPropagation();const n=prompt("Thêm bao nhiêu kịch bản?","1");if(n&&parseInt(n)>0)cloneRow(row.id,parseInt(n));}} title="Thêm kịch bản cho tổ hợp này" style={{background:"none",border:`1px solid ${COL.border}`,borderRadius:"6px",padding:"3px 8px",color:COL.accent,fontSize:"13px",cursor:"pointer",transition:"all 0.2s",fontWeight:700,lineHeight:1,fontFamily:"'DM Sans',sans-serif"}}>+</button>
+                          <button onClick={e=>{e.stopPropagation();deleteRow(row.id);}} title="Xoá dòng này" style={{background:"none",border:`1px solid rgba(239,68,68,0.2)`,borderRadius:"6px",padding:"3px 8px",color:"#ef4444",fontSize:"11px",cursor:"pointer",transition:"all 0.2s",fontWeight:700,lineHeight:1,fontFamily:"'DM Sans',sans-serif"}}>×</button>
+                        </div>}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              </div>
+              {filteredPlan.length>100&&<div style={{padding:"14px",textAlign:"center",fontSize:"12px",color:COL.textMuted,borderTop:`1px solid ${COL.border}`}}>Hiển thị 100 / {filteredPlan.length} dòng. Dùng bộ lọc để thu hẹp.</div>}
+            </div>
+            <p style={{fontSize:"11px",color:COL.textDim,marginTop:"10px"}}>{isAdmin?"💡 Admin: chỉnh sửa trực tiếp trên bảng · Bấm + thêm KB · Click dòng → chi tiết":"🔒 Chế độ xem. Nhập mật khẩu Admin để chỉnh sửa."}</p>
+          </div>
+        )}
+
+        {activeTab==="tracking"&&<TrackingMatrix plan={plan} products={products} concepts={concepts} kocs={kocs}/>}
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+
+<!-- Comme Studio: tinh nang bao cao + nhap nhanh -->
+<script src="./report-tab.js"></script>
+</body>
+</html>
