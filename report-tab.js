@@ -373,24 +373,25 @@
   function openStaff(){ if(!document.getElementById("st-modal"))buildStaff(); document.getElementById("st-ov").style.display="block"; document.getElementById("st-modal").style.display="flex"; var s=document.getElementById("st-status"); if(!loaded){ s.textContent="Dang tai du lieu..."; loadData(function(){ s.textContent="Da tai "+ROWS.length+" ban ghi"; stPreset("month"); }); } else { s.textContent="Da tai "+ROWS.length+" ban ghi"; stPreset("month"); } }
   function closeStaff(){ var o=document.getElementById("st-ov"),m=document.getElementById("st-modal"); if(o)o.style.display="none"; if(m)m.style.display="none"; }
 
-  /* ===================== TABS ===================== */
-  function addTab(id,label,onClick){
-    if(document.getElementById(id))return true;
-    var btns=[].slice.call(document.querySelectorAll("button")), anchor=null;
-    for(var i=0;i<btns.length;i++){ if(/Ma trận theo dõi/.test(btns[i].textContent)){ anchor=btns[i]; break; } }
-    if(!anchor)return false;
-    var b=anchor.cloneNode(true); b.id=id; b.textContent=label;
-    b.addEventListener("click",function(e){ e.preventDefault(); e.stopPropagation(); onClick(); });
-    anchor.parentNode.appendChild(b); return true;
+  /* ===================== LAUNCHER (thanh noi - luon bam duoc) ===================== */
+  function buildLauncher(){
+    if(document.getElementById("cmx-launcher")||!document.body)return;
+    var st=document.createElement("style");
+    st.textContent=".cmx-launcher{position:fixed;right:14px;bottom:14px;z-index:99990;display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;max-width:92vw}"
+      +".cmx-launcher button{background:#6ea8fe;color:#0b0d10;border:0;border-radius:999px;padding:10px 16px;font-size:13px;font-weight:700;cursor:pointer;box-shadow:0 6px 18px rgba(0,0,0,.45);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif}"
+      +".cmx-launcher button:hover{filter:brightness(1.08)}"
+      +".cmx-launcher button.rpt{background:#6ea8fe}.cmx-launcher button.qe{background:#34d399}.cmx-launcher button.st{background:#f0b429}";
+    document.head.appendChild(st);
+    var bar=document.createElement("div"); bar.id="cmx-launcher"; bar.className="cmx-launcher";
+    function mk(cls,label,fn){ var b=document.createElement("button"); b.className=cls; b.textContent=label; b.addEventListener("click",function(e){ e.preventDefault(); e.stopPropagation(); fn(); }); return b; }
+    bar.appendChild(mk("rpt","📊 Báo cáo",openReport));
+    bar.appendChild(mk("qe","✍️ Nhập nhanh",openQE));
+    bar.appendChild(mk("st","👥 Nhân sự",openStaff));
+    document.body.appendChild(bar);
   }
   function start(){
-    var tries=0;
-    var iv=setInterval(function(){
-      var a=addTab("rpt-tab-btn","📊 Báo cáo sản lượng",openReport);
-      var b=addTab("qe-tab-btn","✍️ Nhập nhanh",openQE);
-      var c=addTab("st-tab-btn","👥 Báo cáo nhân sự",openStaff);
-      if((a&&b&&c)||++tries>60)clearInterval(iv);
-    },500);
+    buildLauncher();
+    setInterval(function(){ buildLauncher(); },2000); // tu them lai neu bi xoa boi re-render
   }
   if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",start); else start();
 })();
