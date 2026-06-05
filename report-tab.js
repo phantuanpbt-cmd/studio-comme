@@ -56,6 +56,7 @@
     + ".cmx-chart{margin-top:8px;background:#141821;border:1px solid #2a2f3a;border-radius:10px;padding:10px}";
 
   function el(html){ var d=document.createElement("div"); d.innerHTML=html.trim(); return d.firstChild; }
+  function ensureCSS(){ if(document.getElementById("cmx-css"))return; var s=document.createElement("style"); s.id="cmx-css"; s.textContent=CSS; document.head.appendChild(s); }
   function toast(msg){ var t=document.getElementById("cmx-toast"); if(!t){t=el('<div id="cmx-toast" class="cmx-toast"></div>'); document.body.appendChild(t);} t.textContent=msg; t.style.display="block"; clearTimeout(t._h); t._h=setTimeout(function(){t.style.display="none";},3500); }
 
   // ---------- data ----------
@@ -87,7 +88,7 @@
 
   /* ===================== BAO CAO MODAL ===================== */
   function buildReport(){
-    var style=document.createElement("style"); style.textContent=CSS; document.head.appendChild(style);
+    ensureCSS();
     var ov=el('<div id="rpt-ov" class="cmx-overlay"></div>');
     var m=el(''
       +'<div id="rpt-modal" class="cmx-modal">'
@@ -376,6 +377,7 @@
   /* ===================== LAUNCHER (thanh noi - luon bam duoc) ===================== */
   function buildLauncher(){
     if(document.getElementById("cmx-launcher")||!document.body)return;
+    ensureCSS();
     var st=document.createElement("style");
     st.textContent=".cmx-launcher{position:fixed;right:14px;bottom:14px;z-index:99990;display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;max-width:92vw}"
       +".cmx-launcher button{background:#6ea8fe;color:#0b0d10;border:0;border-radius:999px;padding:10px 16px;font-size:13px;font-weight:700;cursor:pointer;box-shadow:0 6px 18px rgba(0,0,0,.45);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif}"
