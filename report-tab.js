@@ -68,6 +68,23 @@
   function patch(key,obj){ return fetch(DB+"/plan/"+key+".json",{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify(obj)}); }
   function kocList(){ var s={}; ROWS.forEach(function(r){ if(r.koc)s[r.koc]=1; }); return Object.keys(s).sort(function(a,b){return a.localeCompare(b,"vi");}); }
 
+  // ---------- nhan su (content/editor) ----------
+  var CONTENTS = ["Hạnh","Tú Anh","Nhung","Quỳnh"];
+  var EDITORS  = ["Huy","Hiệu","Hành","Tài"];
+  var KOC_STAFF = {
+    "U An":        {content:"Hạnh",   editor:"Huy"},
+    "Việt Cường":  {content:"Hạnh",   editor:"Huy"},
+    "Kiều Trinh":  {content:"Tú Anh", editor:"Hiệu"},
+    "Mai Thùy":    {content:"Tú Anh", editor:"Hiệu"},
+    "Thùy Linh":   {content:"Nhung",  editor:"Hành"},
+    "Hảo Thỏ":     {content:"Nhung",  editor:"Hành"},
+    "Adam":        {content:"Quỳnh",  editor:"Tài"},
+    "Eva":         {content:"Quỳnh",  editor:"Tài"}
+  };
+  var STAFF_FROM = "2026-06-01"; // bao cao nhan su tinh tu thang 6 (co cau moi)
+  function contentOf(r){ return r.content || (KOC_STAFF[r.koc]||{}).content || null; }
+  function editorOf(r){ return r.editor || (KOC_STAFF[r.koc]||{}).editor || null; }
+
   /* ===================== BAO CAO MODAL ===================== */
   function buildReport(){
     var style=document.createElement("style"); style.textContent=CSS; document.head.appendChild(style);
@@ -187,6 +204,7 @@
       +'<div class="cmx-row">'
       +'<div class="cmx-f"><label>KOC</label><select id="qe-koc"></select></div>'
       +'<div class="cmx-f"><label>Loai</label><select id="qe-type"><option value="edit">Da dung</option><option value="shoot">Da quay</option></select></div>'
+      +'<div class="cmx-f"><label>Nguoi thuc hien</label><select id="qe-staff"></select></div>'
       +'<div class="cmx-f"><label>Ngay (bat buoc)</label><input type="date" id="qe-date"></div>'
       +'<div class="cmx-f" style="flex:1"><label>Tim san pham / kich ban</label><input type="text" id="qe-search" placeholder="Loc theo ma SP, kich ban..."></div>'
       +'</div>'
@@ -226,8 +244,19 @@
       if(q){ var hay=((r.product||"")+" "+(r.productFullName||"")+" "+(r.script||"")+" "+(r.concept||"")).toLowerCase(); if(hay.indexOf(q)<0)return false; }
       return true; });
   }
+  var lastStaffKey="";
+  function updateStaffSelect(){
+    var sel=document.getElementById("qe-staff"); if(!sel)return;
+    var type=document.getElementById("qe-type").value, koc=document.getElementById("qe-koc").value;
+    var key=koc+"|"+type;
+    if(key===lastStaffKey && sel.options.length) return; // giu lua chon khi chi go tim kiem
+    lastStaffKey=key;
+    var list=type==="shoot"?CONTENTS:EDITORS;
+    var def=type==="shoot"?(KOC_STAFF[koc]||{}).content:(KOC_STAFF[koc]||{}).editor;
+    sel.innerHTML=list.map(function(n){return '<option'+(n===def?' selected':'')+'>'+esc(n)+'</option>';}).join("");
+  }
   function renderMark(){
-    if(!loaded)return; fillKocSelects();
+    if(!loaded)return; fillKocSelects(); updateStaffSelect();
     var list=markCandidates(), type=document.getElementById("qe-type").value;
     document.getElementById("qe-count").textContent=list.length+" video chua "+(type==="shoot"?"quay":"dung")+" (cua KOC nay)";
     document.getElementById("qe-list").innerHTML=list.map(function(r){ return '<label class="cmx-li"><input type="checkbox" value="'+r.__key+'"><span class="pill">'+esc(r.product||"")+'</span><span class="grow">'+esc(r.productFullName||"")+' - '+esc(r.script||"")+' ['+esc(r.concept||"")+']</span></label>'; }).join("")||'<div class="cmx-li cmx-m">Khong con video nao chua '+(type==="shoot"?"quay":"dung")+'.</div>';
@@ -242,12 +271,13 @@
     if(!keys.length||!date)return;
     if(!validDate(date)){ toast("Ngay khong hop le"); return; }
     var sf=type==="shoot"?"shootStatus":"editStatus", df=type==="shoot"?"shootDate":"editDate";
-    if(!confirm("Danh dau "+keys.length+" video la "+(type==="shoot"?"DA QUAY":"DA DUNG")+" ngay "+ddmm(date)+"/"+date.slice(0,4)+"?\\nThao tac ghi truc tiep vao he thong."))return;
+    var staff=(document.getElementById("qe-staff")||{}).value||"", stf=type==="shoot"?"content":"editor";
+    if(!confirm("Danh dau "+keys.length+" video la "+(type==="shoot"?"DA QUAY":"DA DUNG")+(staff?(" - "+(type==="shoot"?"Content":"Editor")+": "+staff):"")+" ngay "+ddmm(date)+"/"+date.slice(0,4)+"?\\nThao tac ghi truc tiep vao he thong."))return;
     var b=document.getElementById("qe-save"); b.disabled=true; b.textContent="Dang luu...";
-    var patches=keys.map(function(k){ var o={}; o[sf]="done"; o[df]=date; return patch(k,o); });
+    var patches=keys.map(function(k){ var o={}; o[sf]="done"; o[df]=date; if(staff)o[stf]=staff; return patch(k,o); });
     Promise.all(patches).then(function(res){ var ok=res.filter(function(r){return r.ok;}).length;
       // cap nhat ROWS cuc bo
-      keys.forEach(function(k){ var r=ROWS.filter(function(x){return x.__key===k;})[0]; if(r){r[sf]="done";r[df]=date;} });
+      keys.forEach(function(k){ var r=ROWS.filter(function(x){return x.__key===k;})[0]; if(r){r[sf]="done";r[df]=date;if(staff)r[stf]=staff;} });
       toast("Da luu "+ok+"/"+keys.length+" video.");
       renderMark();
     }).catch(function(e){ toast("Loi ghi: "+e.message); b.disabled=false; });
@@ -277,6 +307,72 @@
   function openQE(){ if(!document.getElementById("qe-modal"))buildQE(); document.getElementById("qe-ov").style.display="block"; document.getElementById("qe-modal").style.display="flex"; var s=document.getElementById("qe-status"); if(!loaded){ s.textContent="Dang tai du lieu..."; loadData(function(){ s.textContent="Da tai "+ROWS.length+" ban ghi"; fillKocSelects(); (qeMode==="fix"?renderFix:renderMark)(); }); } else { s.textContent="Da tai "+ROWS.length+" ban ghi"; fillKocSelects(); (qeMode==="fix"?renderFix:renderMark)(); } }
   function closeQE(){ var o=document.getElementById("qe-ov"),m=document.getElementById("qe-modal"); if(o)o.style.display="none"; if(m)m.style.display="none"; }
 
+  /* ===================== BAO CAO NHAN SU MODAL ===================== */
+  function buildStaff(){
+    var ov=el('<div id="st-ov" class="cmx-overlay"></div>');
+    var m=el(''
+      +'<div id="st-modal" class="cmx-modal">'
+      +'<div class="cmx-head"><div><h2>Bao cao nhan su</h2><div class="cmx-sub" id="st-status">Dang tai...</div></div><button class="cmx-x" id="st-x">Dong</button></div>'
+      +'<div class="cmx-body">'
+      +'<div class="cmx-row">'
+      +'<div class="cmx-f"><label>Tu ngay</label><input type="date" id="st-from"></div>'
+      +'<div class="cmx-f"><label>Den ngay</label><input type="date" id="st-to"></div>'
+      +'<div class="cmx-f" style="flex:1"><label>Khoang nhanh</label><div class="cmx-presets" id="st-presets">'
+      +'<button data-p="today">Hom nay</button><button data-p="week">Tuan nay</button><button data-p="month">Thang nay</button><button data-p="last7">7 ngay</button><button data-p="last30">30 ngay</button></div></div>'
+      +'<div class="cmx-f"><label>&nbsp;</label><button class="cmx-btn" id="st-reload">Tai lai</button></div>'
+      +'</div>'
+      +'<div class="cmx-sub" style="margin-bottom:6px;color:#f0b429;font-weight:700">CONTENT - san luong quay</div>'
+      +'<table class="cmx-table"><thead><tr><th>Content</th><th class="n">Quay (khoang)</th><th class="n">Quay (luy ke thang)</th></tr></thead><tbody id="st-content"></tbody><tfoot id="st-cfoot"></tfoot></table>'
+      +'<div class="cmx-sub" style="margin:16px 0 6px;color:#34d399;font-weight:700">EDITOR - video hoan thanh (dung)</div>'
+      +'<table class="cmx-table"><thead><tr><th>Editor</th><th class="n">Dung (khoang)</th><th class="n">Dung (luy ke thang)</th></tr></thead><tbody id="st-editor"></tbody><tfoot id="st-efoot"></tfoot></table>'
+      +'<div class="cmx-note" id="st-range"></div>'
+      +'<div class="cmx-note">* Phan cong tinh tu '+STAFF_FROM+' (co cau nhan su moi). Du lieu truoc do khong tinh vao bao cao nhan su.</div>'
+      +'</div></div>');
+    document.body.appendChild(ov); document.body.appendChild(m);
+    ov.onclick=closeStaff; m.querySelector("#st-x").onclick=closeStaff;
+    m.querySelector("#st-reload").onclick=function(){ loaded=false; loadData(function(){ stPreset("month"); }); };
+    m.querySelector("#st-presets").addEventListener("click",function(e){ if(e.target.dataset.p) stPreset(e.target.dataset.p); });
+    ["st-from","st-to"].forEach(function(id){ document.getElementById(id).addEventListener("change",function(){ [].forEach.call(document.querySelectorAll("#st-presets button"),function(b){b.classList.remove("active");}); renderStaff(); }); });
+  }
+  function clampFrom(d){ return (d&&d<STAFF_FROM)?STAFF_FROM:d; }
+  function computeStaff(){
+    var from=clampFrom(document.getElementById("st-from").value), to=document.getElementById("st-to").value;
+    var ref=to?new Date(to+"T00:00:00"):new Date();
+    var mStart=clampFrom(ref.getFullYear()+"-"+pad(ref.getMonth()+1)+"-01"), mEnd=to||todayStr();
+    var cMap={}, eMap={};
+    CONTENTS.forEach(function(n){cMap[n]={name:n,r:0,m:0};});
+    EDITORS.forEach(function(n){eMap[n]={name:n,r:0,m:0};});
+    ROWS.forEach(function(r){
+      if(r.shootStatus==="done"){ var c=contentOf(r); if(c&&cMap[c]){ if(inRange(r.shootDate,from,to))cMap[c].r++; if(inRange(r.shootDate,mStart,mEnd))cMap[c].m++; } }
+      if(r.editStatus==="done"){ var e=editorOf(r); if(e&&eMap[e]){ if(inRange(r.editDate,from,to))eMap[e].r++; if(inRange(r.editDate,mStart,mEnd))eMap[e].m++; } }
+    });
+    return {content:CONTENTS.map(function(n){return cMap[n];}),editor:EDITORS.map(function(n){return eMap[n];}),from:from,to:to,mStart:mStart,mEnd:mEnd};
+  }
+  function renderStaff(){
+    if(!loaded)return;
+    var d=computeStaff();
+    var ct={r:0,m:0}; d.content.forEach(function(x){ct.r+=x.r;ct.m+=x.m;});
+    var et={r:0,m:0}; d.editor.forEach(function(x){et.r+=x.r;et.m+=x.m;});
+    document.getElementById("st-content").innerHTML=d.content.slice().sort(function(a,b){return b.r-a.r;}).map(function(x){return '<tr><td>'+esc(x.name)+'</td><td class="n cmx-s">'+x.r+'</td><td class="n cmx-m">'+x.m+'</td></tr>';}).join("");
+    document.getElementById("st-cfoot").innerHTML='<tr><td>TONG</td><td class="n cmx-s">'+ct.r+'</td><td class="n">'+ct.m+'</td></tr>';
+    document.getElementById("st-editor").innerHTML=d.editor.slice().sort(function(a,b){return b.r-a.r;}).map(function(x){return '<tr><td>'+esc(x.name)+'</td><td class="n cmx-e">'+x.r+'</td><td class="n cmx-m">'+x.m+'</td></tr>';}).join("");
+    document.getElementById("st-efoot").innerHTML='<tr><td>TONG</td><td class="n cmx-e">'+et.r+'</td><td class="n">'+et.m+'</td></tr>';
+    document.getElementById("st-range").textContent="Khoang loc: "+(d.from||STAFF_FROM)+" -> "+(d.to||"nay")+"  |  Luy ke thang: "+d.mStart+" -> "+d.mEnd;
+  }
+  function stPreset(p){
+    var td=new Date(), f=document.getElementById("st-from"), tt=document.getElementById("st-to");
+    var S=function(a,b){f.value=a;tt.value=b;};
+    if(p==="today")S(fmt(td),fmt(td));
+    else if(p==="week"){var d=new Date(td);var dow=(d.getDay()+6)%7;d.setDate(d.getDate()-dow);S(fmt(d),fmt(td));}
+    else if(p==="month")S(fmt(new Date(td.getFullYear(),td.getMonth(),1)),fmt(td));
+    else if(p==="last7"){var d7=new Date(td);d7.setDate(d7.getDate()-6);S(fmt(d7),fmt(td));}
+    else if(p==="last30"){var d30=new Date(td);d30.setDate(d30.getDate()-29);S(fmt(d30),fmt(td));}
+    [].forEach.call(document.querySelectorAll("#st-presets button"),function(b){b.classList.toggle("active",b.dataset.p===p);});
+    renderStaff();
+  }
+  function openStaff(){ if(!document.getElementById("st-modal"))buildStaff(); document.getElementById("st-ov").style.display="block"; document.getElementById("st-modal").style.display="flex"; var s=document.getElementById("st-status"); if(!loaded){ s.textContent="Dang tai du lieu..."; loadData(function(){ s.textContent="Da tai "+ROWS.length+" ban ghi"; stPreset("month"); }); } else { s.textContent="Da tai "+ROWS.length+" ban ghi"; stPreset("month"); } }
+  function closeStaff(){ var o=document.getElementById("st-ov"),m=document.getElementById("st-modal"); if(o)o.style.display="none"; if(m)m.style.display="none"; }
+
   /* ===================== TABS ===================== */
   function addTab(id,label,onClick){
     if(document.getElementById(id))return true;
@@ -292,7 +388,8 @@
     var iv=setInterval(function(){
       var a=addTab("rpt-tab-btn","📊 Báo cáo sản lượng",openReport);
       var b=addTab("qe-tab-btn","✍️ Nhập nhanh",openQE);
-      if((a&&b)||++tries>60)clearInterval(iv);
+      var c=addTab("st-tab-btn","👥 Báo cáo nhân sự",openStaff);
+      if((a&&b&&c)||++tries>60)clearInterval(iv);
     },500);
   }
   if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",start); else start();
