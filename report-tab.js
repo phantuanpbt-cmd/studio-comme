@@ -67,7 +67,8 @@
     .catch(function(e){ loading=false; toast("Loi tai du lieu: "+e.message); });
   }
   function patch(key,obj){ return fetch(DB+"/plan/"+key+".json",{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify(obj)}); }
-  function kocList(){ var s={}; ROWS.forEach(function(r){ if(r.koc)s[r.koc]=1; }); return Object.keys(s).sort(function(a,b){return a.localeCompare(b,"vi");}); }
+  var EXCLUDE_KOC = {"Đỗ Công":1}; // KOC da nghi - loai khoi bao cao + dropdown
+  function kocList(){ var s={}; ROWS.forEach(function(r){ if(r.koc&&!EXCLUDE_KOC[r.koc])s[r.koc]=1; }); return Object.keys(s).sort(function(a,b){return a.localeCompare(b,"vi");}); }
 
   // ---------- nhan su (content/editor) ----------
   var CONTENTS = ["Hạnh","Tú Anh","Nhung","Quỳnh"];
@@ -80,7 +81,8 @@
     "Thùy Linh":   {content:"Nhung",  editor:"Hành"},
     "Hảo Thỏ":     {content:"Nhung",  editor:"Hành"},
     "Adam":        {content:"Quỳnh",  editor:"Tài"},
-    "Eva":         {content:"Quỳnh",  editor:"Tài"}
+    "Eva":         {content:"Quỳnh",  editor:"Tài"},
+    "Menly":       {content:"Quỳnh",  editor:"Tài"}
   };
   var STAFF_FROM = "2026-06-01"; // bao cao nhan su tinh tu thang 6 (co cau moi)
   function contentOf(r){ return r.content || (KOC_STAFF[r.koc]||{}).content || null; }
@@ -125,7 +127,7 @@
     var ref=to?new Date(to+"T00:00:00"):new Date();
     var mStart=ref.getFullYear()+"-"+pad(ref.getMonth()+1)+"-01", mEnd=to||todayStr();
     var map={};
-    ROWS.forEach(function(r){ var koc=r.koc||"(Khong ro)"; if(kf&&koc!==kf)return;
+    ROWS.forEach(function(r){ var koc=r.koc||"(Khong ro)"; if(EXCLUDE_KOC[koc])return; if(kf&&koc!==kf)return;
       var x=map[koc]||(map[koc]={koc:koc,shot:0,edit:0,mShot:0,mEdit:0});
       if(r.shootStatus==="done"&&inRange(r.shootDate,from,to))x.shot++;
       if(r.editStatus==="done"&&inRange(r.editDate,from,to))x.edit++;
@@ -155,7 +157,7 @@
     var weekly=spanDays>45;
     var bucket={};
     function keyOf(iso){ if(!weekly)return iso; var d=new Date(iso+"T00:00:00"); var dow=(d.getDay()+6)%7; d.setDate(d.getDate()-dow); return fmt(d); }
-    ROWS.forEach(function(r){ if(kf&&(r.koc||"")!==kf)return;
+    ROWS.forEach(function(r){ if(EXCLUDE_KOC[r.koc])return; if(kf&&(r.koc||"")!==kf)return;
       if(r.shootStatus==="done"&&inRange(r.shootDate,f,tt)){ var k=keyOf(r.shootDate); (bucket[k]||(bucket[k]={s:0,e:0})).s++; }
       if(r.editStatus==="done"&&inRange(r.editDate,f,tt)){ var k2=keyOf(r.editDate); (bucket[k2]||(bucket[k2]={s:0,e:0})).e++; }
     });
