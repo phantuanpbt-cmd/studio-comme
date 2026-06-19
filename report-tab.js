@@ -82,7 +82,8 @@
     "Hảo Thỏ":     {content:"Nhung",  editor:"Hành"},
     "Adam":        {content:"Quỳnh",  editor:"Tài"},
     "Eva":         {content:"Quỳnh",  editor:"Tài"},
-    "Menly":       {content:"Quỳnh",  editor:"Tài"}
+    "Menly":       {content:"Quỳnh",  editor:"Tài"},
+    "Kelvin":      {content:"Nhung",  editor:"Hành"}
   };
   var STAFF_FROM = "2026-06-01"; // bao cao nhan su tinh tu thang 6 (co cau moi)
   function contentOf(r){ return r.content || (KOC_STAFF[r.koc]||{}).content || null; }
