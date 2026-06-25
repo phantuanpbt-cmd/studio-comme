@@ -1,0 +1,250 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Comme Studio — Nhập liệu</title>
+<style>
+  :root{ --bg:#0f1218; --card:#161b24; --line:#2a2f3a; --fg:#e6e9ef; --mut:#9aa3b2;
+         --accent:#3b82f6; --green:#10b981; --teal:#14b8a6; }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--bg);color:var(--fg);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+  .wrap{max-width:640px;margin:0 auto;padding:14px;min-height:100vh}
+  h1{font-size:18px;margin:6px 0 2px} .sub{color:var(--mut);font-size:12px;margin:0 0 14px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:12px}
+  label{display:block;font-size:12px;color:var(--mut);margin:0 0 5px}
+  input,select{width:100%;background:#1e222b;border:1px solid var(--line);color:var(--fg);
+    border-radius:10px;padding:11px 12px;font-size:15px;color-scheme:dark}
+  .row{display:flex;gap:10px} .row>*{flex:1}
+  .btn{display:block;width:100%;border:0;border-radius:12px;padding:14px;font-size:15px;font-weight:600;
+    color:#fff;background:var(--accent);cursor:pointer;margin-top:4px}
+  .btn:disabled{opacity:.5;cursor:not-allowed}
+  .btn.shoot{background:var(--accent)} .btn.edit{background:var(--teal)}
+  .mut{color:var(--mut);font-size:13px}
+  .list{margin-top:8px;max-height:48vh;overflow:auto;border:1px solid var(--line);border-radius:12px}
+  .li{display:flex;align-items:center;gap:10px;padding:11px 12px;border-bottom:1px solid var(--line)}
+  .li:last-child{border-bottom:0}
+  .li input[type=checkbox]{width:20px;height:20px;flex:0 0 auto}
+  .li .grow{flex:1;min-width:0;font-size:13px;line-height:1.3}
+  .li .grow small{display:block;color:var(--mut);font-size:11px}
+  .pill{flex:0 0 auto;background:#222838;border:1px solid var(--line);border-radius:999px;
+    padding:2px 9px;font-size:11px;color:#cbd3e1}
+  .bar{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:10px 0 2px}
+  .seg{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}
+  .seg button{flex:1;background:#1e222b;border:1px solid var(--line);color:var(--fg);
+    border-radius:10px;padding:9px;font-size:13px;cursor:pointer}
+  .seg button.on{background:var(--accent);border-color:var(--accent);color:#fff}
+  .toast{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);background:#222838;
+    border:1px solid var(--line);color:var(--fg);padding:11px 16px;border-radius:12px;font-size:13px;
+    box-shadow:0 8px 24px rgba(0,0,0,.4);opacity:0;transition:opacity .25s;z-index:99;max-width:92vw}
+  .toast.show{opacity:1}
+  .hide{display:none!important}
+  .err{color:#f87171;font-size:12px;margin-top:6px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>📋 Comme Studio — Nhập liệu</h1>
+  <p class="sub">Đánh dấu video bạn đã <b>quay</b> / đã <b>dựng</b> trong ngày.</p>
+
+  <!-- B1: PIN -->
+  <div class="card" id="gate">
+    <label>Mã PIN nội bộ</label>
+    <input id="pin" type="password" inputmode="numeric" placeholder="Nhập mã PIN" autocomplete="off">
+    <button class="btn" id="pinBtn">Vào</button>
+    <div class="err hide" id="pinErr">Sai mã PIN, thử lại.</div>
+  </div>
+
+  <!-- B2: chọn người + ngày -->
+  <div class="card hide" id="who">
+    <label>Tôi là ai</label>
+    <select id="staff"></select>
+    <div class="row" style="margin-top:10px">
+      <div>
+        <label>Việc của tôi</label>
+        <input id="jobLabel" value="" disabled>
+      </div>
+      <div>
+        <label>Ngày thực hiện</label>
+        <input id="date" type="date">
+      </div>
+    </div>
+  </div>
+
+  <!-- B3: danh sách video chưa làm -->
+  <div class="card hide" id="work">
+    <label id="searchLabel">Tìm video (mã SP / kịch bản / KOC)</label>
+    <input id="search" type="text" placeholder="Lọc nhanh...">
+    <label style="margin-top:10px"><input type="checkbox" id="allKoc" style="width:auto;margin-right:6px">
+      Hiện video của tất cả KOC (mặc định chỉ KOC của tôi)</label>
+
+    <div class="bar">
+      <span class="mut" id="count">—</span>
+      <label class="mut" style="margin:0"><input type="checkbox" id="checkAll" style="width:auto;margin-right:6px">Chọn tất cả</label>
+    </div>
+    <div class="list" id="list"></div>
+
+    <button class="btn shoot" id="save" disabled>Gửi</button>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+/* ===== Cấu hình — ĐỒNG BỘ với report-tab.js / worker.js ===== */
+var DB   = "https://comme-studio-default-rtdb.asia-southeast1.firebasedatabase.app";
+var PIN  = "2026";                 // ⚠️ ĐỔI mã này trước khi giao cho nhân sự
+var CONTENTS = ["Hạnh","Tú Anh","Nhung","Quỳnh"];   // người quay
+var EDITORS  = ["Huy","Hiệu","Hành","Tài"];          // người dựng
+var KOC_STAFF = {
+  "U An":        {content:"Hạnh",   editor:"Huy"},
+  "Việt Cường":  {content:"Hạnh",   editor:"Huy"},
+  "Kiều Trinh":  {content:"Tú Anh", editor:"Hiệu"},
+  "Mai Thùy":    {content:"Tú Anh", editor:"Hiệu"},
+  "Thùy Linh":   {content:"Nhung",  editor:"Hành"},
+  "Hảo Thỏ":     {content:"Nhung",  editor:"Hành"},
+  "Adam":        {content:"Quỳnh",  editor:"Tài"},
+  "Eva":         {content:"Quỳnh",  editor:"Tài"},
+  "Menly":       {content:"Quỳnh",  editor:"Tài"},
+  "Kelvin":      {content:"Nhung",  editor:"Hành"}
+};
+var EXCLUDE_KOC = {"Đỗ Công":1};   // KOC đã nghỉ
+
+/* ===== Helpers ===== */
+var $ = function(id){ return document.getElementById(id); };
+function esc(s){ return String(s==null?"":s).replace(/[&<>"]/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c];}); }
+function todayStr(){ var d=new Date(),p=function(n){return(n<10?"0":"")+n;}; return d.getFullYear()+"-"+p(d.getMonth()+1)+"-"+p(d.getDate()); }
+function ddmm(s){ return s.slice(8,10)+"/"+s.slice(5,7); }
+function validDate(s){ return /^\d{4}-\d{2}-\d{2}$/.test(s); }
+var T;
+function toast(msg){ var t=$("toast"); t.textContent=msg; t.classList.add("show"); clearTimeout(T); T=setTimeout(function(){t.classList.remove("show");},2600); }
+function patch(key,obj){ return fetch(DB+"/plan/"+key+".json",{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify(obj)}); }
+
+/* type của 1 người: "shoot" nếu là content, "edit" nếu là editor */
+function jobOf(name){ return CONTENTS.indexOf(name)>=0 ? "shoot" : "edit"; }
+/* các KOC mà 1 người phụ trách */
+function kocsOf(name,type){
+  var field = type==="shoot" ? "content" : "editor", out=[];
+  for(var k in KOC_STAFF){ if(EXCLUDE_KOC[k])continue; if(KOC_STAFF[k][field]===name)out.push(k); }
+  return out;
+}
+
+var ROWS=[];      // toàn bộ /plan dạng mảng, có __key
+var loaded=false;
+
+/* ===== B1: PIN ===== */
+$("pinBtn").addEventListener("click",enterPin);
+$("pin").addEventListener("keydown",function(e){ if(e.key==="Enter")enterPin(); });
+function enterPin(){
+  if($("pin").value.trim()!==PIN){ $("pinErr").classList.remove("hide"); return; }
+  $("pinErr").classList.add("hide");
+  $("gate").classList.add("hide"); $("who").classList.remove("hide");
+  initWho();
+}
+
+/* ===== B2: chọn người ===== */
+function initWho(){
+  var sel=$("staff");
+  sel.innerHTML='<option value="">— Chọn tên —</option>'
+    + '<optgroup label="Quay (Content)">'+CONTENTS.map(function(n){return '<option>'+esc(n)+'</option>';}).join("")+'</optgroup>'
+    + '<optgroup label="Dựng (Editor)">'+EDITORS.map(function(n){return '<option>'+esc(n)+'</option>';}).join("")+'</optgroup>';
+  $("date").value=todayStr();
+  sel.addEventListener("change",onPick);
+  $("date").addEventListener("change",render);
+  $("search").addEventListener("input",render);
+  $("allKoc").addEventListener("change",render);
+  $("checkAll").addEventListener("change",function(e){
+    [].forEach.call(document.querySelectorAll("#list input[type=checkbox]"),function(c){c.checked=e.target.checked;});
+    updateSave();
+  });
+  $("save").addEventListener("click",save);
+}
+
+function onPick(){
+  var name=$("staff").value;
+  if(!name){ $("work").classList.add("hide"); return; }
+  var type=jobOf(name);
+  $("jobLabel").value = type==="shoot" ? "Quay (Content)" : "Dựng (Editor)";
+  $("save").className = "btn "+(type==="shoot"?"shoot":"edit");
+  $("work").classList.remove("hide");
+  if(!loaded){ loadData(); } else { render(); }
+}
+
+/* ===== Tải dữ liệu ===== */
+function loadData(){
+  $("count").textContent="Đang tải dữ liệu...";
+  fetch(DB+"/plan.json",{cache:"no-store"})
+    .then(function(r){ if(!r.ok)throw new Error("HTTP "+r.status); return r.json(); })
+    .then(function(d){
+      ROWS=[]; for(var k in d){ var v=d[k]; if(v&&typeof v==="object"){ v.__key=k; ROWS.push(v); } }
+      loaded=true; render();
+    })
+    .catch(function(e){ $("count").textContent="Lỗi tải dữ liệu: "+e.message; });
+}
+
+/* ===== Lọc + render danh sách video CHƯA làm ===== */
+function currentList(){
+  var name=$("staff").value, type=jobOf(name);
+  var statusField = type==="shoot" ? "shootStatus" : "editStatus";
+  var myKocs = kocsOf(name,type), allKoc=$("allKoc").checked;
+  var q = $("search").value.trim().toLowerCase();
+  return ROWS.filter(function(r){
+    if(EXCLUDE_KOC[r.koc])return false;
+    if(r[statusField]==="done")return false;                 // chỉ video chưa làm
+    if(!allKoc && myKocs.indexOf(r.koc)<0)return false;       // mặc định chỉ KOC của mình
+    if(q){
+      var hay=((r.product||"")+" "+(r.productFullName||"")+" "+(r.script||"")+" "+(r.koc||"")+" "+(r.concept||"")).toLowerCase();
+      if(hay.indexOf(q)<0)return false;
+    }
+    return true;
+  });
+}
+
+function render(){
+  if($("staff").value==="" ) return;
+  if(!loaded){ return; }
+  var list=currentList(), name=$("staff").value, type=jobOf(name);
+  $("count").textContent = list.length+" video chưa "+(type==="shoot"?"quay":"dựng");
+  $("checkAll").checked=false;
+  $("list").innerHTML = list.length ? list.map(function(r){
+    return '<label class="li">'
+      +'<input type="checkbox" value="'+esc(r.__key)+'">'
+      +'<span class="pill">'+esc(r.koc||"")+'</span>'
+      +'<span class="grow">'+esc(r.product||"")+' — '+esc(r.script||"")
+        +'<small>'+esc(r.productFullName||"")+(r.concept?(' · '+esc(r.concept)):"")+'</small></span>'
+      +'</label>';
+  }).join("") : '<div class="li mut">Không còn video nào chưa '+(type==="shoot"?"quay":"dựng")+'.</div>';
+  [].forEach.call(document.querySelectorAll("#list input[type=checkbox]"),function(c){ c.addEventListener("change",updateSave); });
+  updateSave();
+}
+
+function selectedKeys(){ return [].slice.call(document.querySelectorAll("#list input[type=checkbox]:checked")).map(function(c){return c.value;}); }
+function updateSave(){
+  var n=selectedKeys().length, name=$("staff").value, type=jobOf(name), b=$("save");
+  b.disabled = n===0 || !validDate($("date").value);
+  b.textContent = n ? ("Gửi "+n+" video đã "+(type==="shoot"?"quay":"dựng")) : "Gửi";
+}
+
+/* ===== Lưu: PATCH từng video ===== */
+function save(){
+  var keys=selectedKeys(), name=$("staff").value, type=jobOf(name), date=$("date").value;
+  if(!keys.length || !validDate(date)){ toast("Chọn video và ngày hợp lệ."); return; }
+  var sf = type==="shoot" ? "shootStatus" : "editStatus";
+  var df = type==="shoot" ? "shootDate"   : "editDate";
+  var stf= type==="shoot" ? "content"     : "editor";
+  if(!confirm("Đánh dấu "+keys.length+" video là "+(type==="shoot"?"ĐÃ QUAY":"ĐÃ DỰNG")
+      +" — "+(type==="shoot"?"Content":"Editor")+": "+name+" — ngày "+ddmm(date)+"/"+date.slice(0,4)
+      +"?\nThao tác ghi trực tiếp vào hệ thống.")) return;
+  var b=$("save"); b.disabled=true; b.textContent="Đang gửi...";
+  var patches=keys.map(function(k){ var o={}; o[sf]="done"; o[df]=date; o[stf]=name; return patch(k,o); });
+  Promise.all(patches).then(function(res){
+    var ok=res.filter(function(r){return r.ok;}).length;
+    keys.forEach(function(k){ var r=ROWS.filter(function(x){return x.__key===k;})[0]; if(r){ r[sf]="done"; r[df]=date; r[stf]=name; } });
+    toast("✅ Đã gửi "+ok+"/"+keys.length+" video.");
+    render();
+  }).catch(function(e){ toast("Lỗi gửi: "+e.message); b.disabled=false; updateSave(); });
+}
+</script>
+</body>
+</html>
